@@ -15,7 +15,7 @@ of that: it skips the full ECDH handshake Zwift Play/Ride use, and instead:
 2. Sends a bare `RideOn` keepalive write every 3 seconds (skipping this makes
    the device go idle and disconnect after about a minute).
 3. Reads button state from unencrypted notifications (opcode `0x23`): a
-   bitmask where bit `0x1000` is shift-up and bit `0x4` is shift-down, with
+   bitmask where bit `0x1000` is shift-up and bit `0x100` is shift-down, with
    `0` meaning pressed.
 
 If your Click has *never* been paired with the real Zwift app, this won't
@@ -80,7 +80,7 @@ A config file is created on first run at:
   "reconnect_delay_seconds": 3,
   "buttons": {
     "0x1000": {"name": "shift_up", "key": "i"},
-    "0x4": {"name": "shift_down", "key": "k"}
+    "0x100": {"name": "shift_down", "key": "k"}
   }
 }
 ```
@@ -118,3 +118,8 @@ for ~20 seconds and reconnected cleanly).
 - If the Click stops responding mid-session, it's almost always the device
   itself going idle, not the bridge -- leave it untouched for ~20s, press a
   paddle to wake it, and the bridge's auto-reconnect should pick it back up.
+- The first few paddle presses right after connecting can be silently
+  dropped -- the button sensor itself seems to stay in a low-power state
+  until a real press wakes it up, separately from the BLE connection being
+  active. This is normal; just press a couple extra times after starting
+  the bridge and it settles into reliably catching every press.

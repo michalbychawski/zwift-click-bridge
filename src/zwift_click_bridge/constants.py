@@ -28,8 +28,11 @@ KEEPALIVE_INTERVAL_SECONDS = 3.0
 
 BUTTON_OPCODE = 0x23  # payload[0] for button-state notifications on CHAR_ASYNC_NOTIFY
 
-# Confirmed on real Click v2 hardware: field-1 varint is a bitmask, 0 = pressed.
+# Confirmed on real Click v2 hardware (single isolated BLE connection, no
+# contamination from a second client) that field-1 varint is a bitmask,
+# 0 = pressed. An earlier reading of 0x4 for shift-down turned out to be
+# contamination from a stale duplicate test process, not a real button.
 BUTTON_BIT_SHIFT_UP = 0x1000
-BUTTON_BIT_SHIFT_DOWN = 0x4
+BUTTON_BIT_SHIFT_DOWN = 0x100
 
 DEVICE_NAME_HINTS = ("Zwift Click",)

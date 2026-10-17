@@ -2,6 +2,6 @@
   "reconnect_delay_seconds": 3,
   "buttons": {
     "0x1000": {"name": "shift_up", "key": "i"},
-    "0x4": {"name": "shift_down", "key": "k"}
+    "0x100": {"name": "shift_down", "key": "k"}
   }
 }
