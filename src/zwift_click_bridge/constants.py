@@ -28,10 +28,25 @@ KEEPALIVE_INTERVAL_SECONDS = 3.0
 
 BUTTON_OPCODE = 0x23  # payload[0] for button-state notifications on CHAR_ASYNC_NOTIFY
 
-# Confirmed on real Click v2 hardware (single isolated BLE connection, no
-# contamination from a second client) that field-1 varint is a bitmask,
-# 0 = pressed. An earlier reading of 0x4 for shift-down turned out to be
-# contamination from a stale duplicate test process, not a real button.
+# field-1 varint is a bitmask, 0 = pressed. This is the full bit layout for
+# Zwift's shared accessory protocol (also used by Zwift Play's d-pad/A-B-Y-Z
+# buttons); Click v2 only has two physical paddles, confirmed on real
+# hardware to be 0x100 (shift down) and 0x1000 (shift up) -- the other
+# bits are listed for config completeness (e.g. if used with a Play
+# controller) but will never fire on a real Click.
+BUTTON_BITS = {
+    0x1: "left",
+    0x2: "up",
+    0x4: "right",
+    0x8: "down",
+    0x10: "a",
+    0x20: "b",
+    0x40: "y",
+    0x80: "z",
+    0x100: "shift_down",
+    0x1000: "shift_up",
+}
+
 BUTTON_BIT_SHIFT_UP = 0x1000
 BUTTON_BIT_SHIFT_DOWN = 0x100
 

@@ -1,7 +1,15 @@
 {
   "reconnect_delay_seconds": 3,
   "buttons": {
-    "0x1000": {"name": "shift_up", "key": "i"},
-    "0x100": {"name": "shift_down", "key": "k"}
+    "0x1": {"name": "left", "key": null},
+    "0x2": {"name": "up", "key": null},
+    "0x4": {"name": "right", "key": null},
+    "0x8": {"name": "down", "key": null},
+    "0x10": {"name": "a", "key": null},
+    "0x20": {"name": "b", "key": null},
+    "0x40": {"name": "y", "key": null},
+    "0x80": {"name": "z", "key": null},
+    "0x100": {"name": "shift_down", "key": "k"},
+    "0x1000": {"name": "shift_up", "key": "i"}
   }
 }

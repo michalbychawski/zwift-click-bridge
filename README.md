@@ -79,15 +79,28 @@ A config file is created on first run at:
 {
   "reconnect_delay_seconds": 3,
   "buttons": {
-    "0x1000": {"name": "shift_up", "key": "i"},
-    "0x100": {"name": "shift_down", "key": "k"}
+    "0x1": {"name": "left", "key": null},
+    "0x2": {"name": "up", "key": null},
+    "0x4": {"name": "right", "key": null},
+    "0x8": {"name": "down", "key": null},
+    "0x10": {"name": "a", "key": null},
+    "0x20": {"name": "b", "key": null},
+    "0x40": {"name": "y", "key": null},
+    "0x80": {"name": "z", "key": null},
+    "0x100": {"name": "shift_down", "key": "k"},
+    "0x1000": {"name": "shift_up", "key": "i"}
   }
 }
 ```
 
-Change `"key"` to remap either button. Single characters (`"i"`, `"k"`) map
-directly; for special keys use `pynput.keyboard.Key` names, e.g. `"page_up"`,
-`"up"`, `"f1"`.
+All 10 bit positions from Zwift's shared accessory protocol are listed, but
+a real Click v2 only ever fires `0x100` (shift down) and `0x1000` (shift
+up) -- the rest (`left`/`up`/`right`/`down`/`a`/`b`/`y`/`z`) belong to Zwift
+Play's d-pad and face buttons and are here for config completeness (e.g. if
+you ever point this at a Play controller instead). Set `"key"` to `null` to
+leave a button unmapped, or to a key name to map it. Single characters
+(`"i"`, `"k"`) map directly; for special keys use `pynput.keyboard.Key`
+names, e.g. `"page_up"`, `"up"`, `"f1"`.
 
 ## Platform notes
 
