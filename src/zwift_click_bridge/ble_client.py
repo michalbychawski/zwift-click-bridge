@@ -13,19 +13,47 @@ from .protocol import decode_button_bitmask
 logger = logging.getLogger(__name__)
 
 ButtonHandler = Callable[[int], None]
+DeviceSeenHandler = Callable[[BLEDevice], None]
+
+
+def _matches(device: BLEDevice, adv) -> bool:
+    name = device.name or ""
+    if any(hint.lower() in name.lower() for hint in constants.DEVICE_NAME_HINTS):
+        return True
+    return constants.SERVICE_UUID.lower() in [u.lower() for u in adv.service_uuids]
 
 
 async def find_device(timeout: float = 10.0) -> BLEDevice:
-    def matches(device: BLEDevice, adv) -> bool:
-        name = device.name or ""
-        if any(hint.lower() in name.lower() for hint in constants.DEVICE_NAME_HINTS):
-            return True
-        return constants.SERVICE_UUID.lower() in [u.lower() for u in adv.service_uuids]
-
-    device = await BleakScanner.find_device_by_filter(matches, timeout=timeout)
+    device = await BleakScanner.find_device_by_filter(_matches, timeout=timeout)
     if device is None:
         raise RuntimeError("Zwift Click not found -- is it powered on and in range?")
     return device
+
+
+class DeviceScanner:
+    """Continuously scans for Click-matching devices, invoking on_device_seen for every
+    matching advertisement -- including repeats of an already-known device, since that's
+    how callers notice a previously-connected controller waking back up."""
+
+    def __init__(self, on_device_seen: DeviceSeenHandler):
+        self._on_device_seen = on_device_seen
+        self._scanner: BleakScanner | None = None
+
+    def _detection_callback(self, device: BLEDevice, advertisement_data) -> None:
+        if _matches(device, advertisement_data):
+            self._on_device_seen(device)
+
+    async def start(self) -> None:
+        if self._scanner is not None:
+            return
+        self._scanner = BleakScanner(detection_callback=self._detection_callback)
+        await self._scanner.start()
+
+    async def stop(self) -> None:
+        if self._scanner is None:
+            return
+        scanner, self._scanner = self._scanner, None
+        await scanner.stop()
 
 
 class ZwiftClickClient:
@@ -51,6 +79,11 @@ class ZwiftClickClient:
         await self._client.connect()
 
         await self._client.start_notify(constants.CHAR_ASYNC_NOTIFY, self._on_notify)
+        # Some units need a moment for the notify subscription to actually settle before
+        # the activation writes land -- skipping this makes exactly one button press
+        # register and then the notify stream silently goes dead for the rest of the
+        # connection (confirmed empirically: this delay was the only variable that fixed it).
+        await asyncio.sleep(0.5)
 
         for payload in constants.ACTIVATION_WRITES:
             await self._client.write_gatt_char(constants.CHAR_SYNC_RX_WRITE, payload, response=False)

@@ -15,8 +15,20 @@ _DEFAULT_KEYS = {
     constants.BUTTON_BIT_SHIFT_DOWN: "k",
 }
 
+# Lets the Click drop into its own battery-saving sleep when unused, rather
+# than the keepalive holding the connection open indefinitely.
+DEFAULT_IDLE_DISCONNECT_SECONDS = 600
+
+# After we disconnect it intentionally, the Click keeps advertising (and
+# reconnecting) for roughly a minute before it actually sleeps -- observed
+# empirically, not documented anywhere. Retrying sooner than this just
+# catches that lingering advertisement and never lets it fully sleep.
+DEFAULT_POST_IDLE_COOLDOWN_SECONDS = 90
+
 DEFAULT_CONFIG = {
     "reconnect_delay_seconds": 3,
+    "idle_disconnect_seconds": DEFAULT_IDLE_DISCONNECT_SECONDS,
+    "post_idle_cooldown_seconds": DEFAULT_POST_IDLE_COOLDOWN_SECONDS,
     "buttons": {
         hex(bit): {"name": name, "key": _DEFAULT_KEYS.get(bit)}
         for bit, name in constants.BUTTON_BITS.items()
@@ -33,6 +45,8 @@ class ButtonMapping:
 @dataclass
 class KeyMap:
     reconnect_delay_seconds: float
+    idle_disconnect_seconds: float
+    post_idle_cooldown_seconds: float
     buttons: dict[int, ButtonMapping]
 
     @classmethod
@@ -47,9 +61,10 @@ class KeyMap:
         buttons = {
             int(bit, 16) if bit.lower().startswith("0x") else int(bit): ButtonMapping(**mapping)
             for bit, mapping in raw["buttons"].items()
-            if mapping.get("key") is not None
         }
         return cls(
             reconnect_delay_seconds=raw["reconnect_delay_seconds"],
+            idle_disconnect_seconds=raw.get("idle_disconnect_seconds", DEFAULT_IDLE_DISCONNECT_SECONDS),
+            post_idle_cooldown_seconds=raw.get("post_idle_cooldown_seconds", DEFAULT_POST_IDLE_COOLDOWN_SECONDS),
             buttons=buttons,
         )

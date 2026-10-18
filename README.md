@@ -1,9 +1,9 @@
 # zwift-click-bridge
 
-Pairs with a **Zwift Click v2** controller over Bluetooth LE and maps its two
-paddle buttons to keyboard key presses -- by default `I` (shift up) and `K`
-(shift down), matching [MyWhoosh](https://mywhoosh.com)'s MyShift virtual
-gearing keybinds. Works on macOS and Windows.
+Pairs with one or more **Zwift Click v2** controllers over Bluetooth LE and
+maps their paddle buttons to keyboard key presses -- by default `I` (shift
+up) and `K` (shift down), matching [MyWhoosh](https://mywhoosh.com)'s
+MyShift virtual gearing keybinds. Works on macOS and Windows.
 
 ## How it works
 
@@ -65,8 +65,23 @@ toggle. Then run the real bridge, which actually types the mapped keys:
 zwift-click-bridge                # Windows, venv activated
 ```
 
-A tray icon shows connection status (gray = disconnected, green = connected)
-with a Quit option. It auto-reconnects if the Click disconnects.
+This opens a window that scans continuously for Click controllers. A panel
+appears for each one it finds, showing:
+
+- A status dot (gray = disconnected, yellow = connecting, green = connected).
+- A box per button that flashes briefly on every press -- handy for
+  confirming the controller and the bridge are both working.
+- A **Disconnect** button to deliberately drop that controller's connection
+  (e.g. to let it go to sleep). It reconnects automatically the next time
+  you press one of its paddles.
+
+If you have two Click units (e.g. one per hand), both get their own panel
+and connect/disconnect independently -- you don't need to press them at the
+same time, and losing one doesn't affect the other.
+
+The **Stop Listening** / **Start Listening** button at the bottom pauses or
+resumes scanning entirely, disconnecting everything while stopped. Closing
+the window quits the app.
 
 ## Configuration
 
@@ -78,6 +93,8 @@ A config file is created on first run at:
 ```json
 {
   "reconnect_delay_seconds": 3,
+  "idle_disconnect_seconds": 600,
+  "post_idle_cooldown_seconds": 90,
   "buttons": {
     "0x1": {"name": "left", "key": null},
     "0x2": {"name": "up", "key": null},
@@ -93,6 +110,9 @@ A config file is created on first run at:
 }
 ```
 
+This config is shared across every controller the bridge connects to --
+there's currently no per-device key mapping.
+
 All 10 bit positions from Zwift's shared accessory protocol are listed, but
 a real Click v2 only ever fires `0x100` (shift down) and `0x1000` (shift
 up) -- the rest (`left`/`up`/`right`/`down`/`a`/`b`/`y`/`z`) belong to Zwift
@@ -101,6 +121,21 @@ you ever point this at a Play controller instead). Set `"key"` to `null` to
 leave a button unmapped, or to a key name to map it. Single characters
 (`"i"`, `"k"`) map directly; for special keys use `pynput.keyboard.Key`
 names, e.g. `"page_up"`, `"up"`, `"f1"`.
+
+`idle_disconnect_seconds` (default 600 = 10 minutes) controls when the
+bridge voluntarily disconnects a controller after no button activity on it,
+letting the Click drop into its own battery-saving sleep instead of being
+held awake indefinitely by the keepalive. It reconnects automatically the
+next time you press that controller. Set it higher (or very large) if you'd
+rather it always stay connected. The same cooldown applies if you click a
+controller's **Disconnect** button yourself.
+
+`post_idle_cooldown_seconds` (default 90) is how long the bridge waits
+before it's willing to reconnect a controller after the above disconnect.
+The Click keeps advertising for a while (tens of seconds) after any
+disconnect before it actually sleeps; without this cooldown the bridge
+would immediately reconnect to that lingering advertisement and the
+controller would never actually get to sleep.
 
 ## Platform notes
 
@@ -136,3 +171,10 @@ for ~20 seconds and reconnected cleanly).
   until a real press wakes it up, separately from the BLE connection being
   active. This is normal; just press a couple extra times after starting
   the bridge and it settles into reliably catching every press.
+- Some individual units can stop reporting button presses after a while
+  even though they're still showing as connected (other traffic, like the
+  keepalive, keeps flowing fine -- it's specifically button-press reporting
+  that goes quiet). This looks like a firmware-side issue on that specific
+  controller rather than anything the bridge can fix from the host side.
+  Click that controller's **Disconnect** button and press it again to force
+  a fresh connection, which typically restores it for a while.
