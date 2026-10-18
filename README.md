@@ -30,6 +30,17 @@ over.
 
 ## Setup
 
+### Windows: prebuilt .exe (no Python needed)
+
+A standalone `ZwiftClickBridge.exe` is built by
+[the "Build Windows exe" GitHub Actions workflow](../../actions/workflows/build-windows.yml):
+open it, click **Run workflow**, wait for it to finish, then download the
+`ZwiftClickBridge-windows` artifact from the run's summary page. It's
+unsigned, so Windows SmartScreen will likely warn on first launch -- click
+"More info" -> "Run anyway".
+
+### From source (macOS, Linux, or Windows)
+
 ```
 git clone git@github.com:michalbychawski/zwift-click-bridge.git
 cd zwift-click-bridge
@@ -101,7 +112,7 @@ A config file is created on first run at:
     "0x4": {"name": "right", "key": null},
     "0x8": {"name": "down", "key": null},
     "0x10": {"name": "a", "key": null},
-    "0x20": {"name": "b", "key": null},
+    "0x20": {"name": "b", "key": "k"},
     "0x40": {"name": "y", "key": null},
     "0x80": {"name": "z", "key": null},
     "0x100": {"name": "shift_down", "key": "k"},
@@ -113,14 +124,16 @@ A config file is created on first run at:
 This config is shared across every controller the bridge connects to --
 there's currently no per-device key mapping.
 
-All 10 bit positions from Zwift's shared accessory protocol are listed, but
-a real Click v2 only ever fires `0x100` (shift down) and `0x1000` (shift
-up) -- the rest (`left`/`up`/`right`/`down`/`a`/`b`/`y`/`z`) belong to Zwift
-Play's d-pad and face buttons and are here for config completeness (e.g. if
-you ever point this at a Play controller instead). Set `"key"` to `null` to
-leave a button unmapped, or to a key name to map it. Single characters
-(`"i"`, `"k"`) map directly; for special keys use `pynput.keyboard.Key`
-names, e.g. `"page_up"`, `"up"`, `"f1"`.
+All 10 bit positions from Zwift's shared accessory protocol are listed. On
+a real Click v2 the two paddles -- `0x100` (shift down) and `0x1000` (shift
+up) -- are the primary controls; `0x20` ("b") is mapped to the same key as
+shift down by default as a second trigger for it. The rest
+(`left`/`up`/`right`/`down`/`a`/`y`/`z`) belong to Zwift Play's d-pad and
+face buttons and are here for config completeness (e.g. if you ever point
+this at a Play controller instead). Set `"key"` to `null` to leave a button
+unmapped, or to a key name to map it. Single characters (`"i"`, `"k"`) map
+directly; for special keys use `pynput.keyboard.Key` names, e.g.
+`"page_up"`, `"up"`, `"f1"`.
 
 `idle_disconnect_seconds` (default 600 = 10 minutes) controls when the
 bridge voluntarily disconnects a controller after no button activity on it,

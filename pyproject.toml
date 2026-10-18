@@ -9,6 +9,9 @@ dependencies = [
     "PySide6>=6.6",
 ]
 
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
+
 [project.scripts]
 zwift-click-bridge = "zwift_click_bridge.app:main"
 zwift-click-spike = "zwift_click_bridge.spike:main"

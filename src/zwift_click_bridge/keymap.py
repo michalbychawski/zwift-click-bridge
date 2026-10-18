@@ -8,11 +8,12 @@ from . import constants
 
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "zwift-click-bridge" / "config.json"
 
-# Only these two ever fire on a real Click v2; the rest default to unmapped
-# (key: null) since they belong to Zwift Play's extra buttons.
+# The two paddles are the main shift controls; "b" is also mapped to gear
+# down as a second trigger for it. The rest default to unmapped (key: null).
 _DEFAULT_KEYS = {
     constants.BUTTON_BIT_SHIFT_UP: "i",
     constants.BUTTON_BIT_SHIFT_DOWN: "k",
+    0x20: "k",  # "b"
 }
 
 # Lets the Click drop into its own battery-saving sleep when unused, rather
