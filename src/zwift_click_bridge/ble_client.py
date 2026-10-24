@@ -23,8 +23,20 @@ def _matches(device: BLEDevice, adv) -> bool:
     return constants.SERVICE_UUID.lower() in [u.lower() for u in adv.service_uuids]
 
 
-async def find_device(timeout: float = 10.0) -> BLEDevice:
-    device = await BleakScanner.find_device_by_filter(_matches, timeout=timeout)
+def device_type(adv) -> int | None:
+    """First byte of Zwift's manufacturer data, or None if this advertisement lacks it
+    (it can be missing from some packets, so callers just wait for the next one)."""
+    data = adv.manufacturer_data.get(constants.ZWIFT_MANUFACTURER_ID)
+    return data[0] if data else None
+
+
+def side_matcher(side: str) -> Callable[[BLEDevice, object], bool]:
+    wanted = constants.DEVICE_TYPE_BY_SIDE[side]
+    return lambda device, adv: _matches(device, adv) and device_type(adv) == wanted
+
+
+async def find_device(timeout: float = 10.0, side: str = "right") -> BLEDevice:
+    device = await BleakScanner.find_device_by_filter(side_matcher(side), timeout=timeout)
     if device is None:
         raise RuntimeError("Zwift Click not found -- is it powered on and in range?")
     return device
@@ -35,12 +47,21 @@ class DeviceScanner:
     matching advertisement -- including repeats of an already-known device, since that's
     how callers notice a previously-connected controller waking back up."""
 
-    def __init__(self, on_device_seen: DeviceSeenHandler):
+    def __init__(self, on_device_seen: DeviceSeenHandler, side: str = "right"):
         self._on_device_seen = on_device_seen
+        self._matches = side_matcher(side)
         self._scanner: BleakScanner | None = None
+        self._logged_types: set[tuple[str, int | None]] = set()
 
     def _detection_callback(self, device: BLEDevice, advertisement_data) -> None:
-        if _matches(device, advertisement_data):
+        if not _matches(device, advertisement_data):
+            return
+        key = (device.address, device_type(advertisement_data))
+        if key not in self._logged_types:
+            self._logged_types.add(key)
+            type_text = f"0x{key[1]:02x}" if key[1] is not None else "unknown"
+            logger.info("Saw %s (%s), device type %s", device.name, device.address, type_text)
+        if self._matches(device, advertisement_data):
             self._on_device_seen(device)
 
     async def start(self) -> None:

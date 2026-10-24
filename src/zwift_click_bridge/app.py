@@ -4,11 +4,10 @@ import asyncio
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from bleak.backends.device import BLEDevice
-from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QApplication
 
 from .ble_client import DeviceScanner, ZwiftClickClient
 from .gui import MainWindow
@@ -35,19 +34,22 @@ class _Session:
     disconnect_requested: bool = False
 
 
-class BridgeApp(QObject):
-    device_status_changed = Signal(str, str, str)  # address, name, status
-    button_event = Signal(str, str, bool)  # address, button_name, pressed
+def _noop(*_args) -> None:
+    pass
 
+
+class BridgeApp:
     def __init__(self, loop: asyncio.AbstractEventLoop):
-        super().__init__()
         self.keymap = KeyMap.load()
+        # Both invoked on the asyncio thread; the GUI marshals them onto its own.
+        self.device_status_changed: Callable[[str, str, str], None] = _noop  # address, name, status
+        self.button_event: Callable[[str, str, bool], None] = _noop  # address, button_name, pressed
         self.injector = KeyInjector()
         self._loop = loop
         self._stop_event = asyncio.Event()
         self._listening = True
         self._sessions: dict[str, _Session] = {}
-        self._scanner = DeviceScanner(self._on_device_seen)
+        self._scanner = DeviceScanner(self._on_device_seen, side=self.keymap.controller_side)
         # Serializes the connect sequence (subscribe + activation writes) across devices --
         # two connecting at once on the shared BLE stack was observed to make one of them
         # silently stop receiving button notifications after the first press.
@@ -56,7 +58,7 @@ class BridgeApp(QObject):
     def _threadsafe(self, fn) -> None:
         self._loop.call_soon_threadsafe(fn)
 
-    # -- controls, all called from the Qt thread --
+    # -- controls, all called from the GUI thread --
 
     def request_stop(self) -> None:
         self._threadsafe(self._do_stop)
@@ -66,6 +68,14 @@ class BridgeApp(QObject):
 
     def disconnect_device(self, address: str) -> None:
         self._threadsafe(lambda: self._disconnect_device(address))
+
+    def save_keymap(self) -> None:
+        # The mapping objects themselves are already updated in place by the GUI;
+        # _on_button reads them live, so this only needs to persist them.
+        try:
+            self.keymap.save()
+        except OSError:
+            logger.exception("failed to save config to %s", self.keymap.path)
 
     # -- the above, actually applied on the asyncio loop thread --
 
@@ -98,7 +108,7 @@ class BridgeApp(QObject):
         if session is None:
             session = _Session(address=address, name=f"{device.name or 'Zwift Click'} ({address[-5:]})")
             self._sessions[address] = session
-            self.device_status_changed.emit(address, session.name, STATUS_DISCONNECTED)
+            self.device_status_changed(address, session.name, STATUS_DISCONNECTED)
 
         if not self._listening:
             return
@@ -120,23 +130,23 @@ class BridgeApp(QObject):
             was_pressed = (previous & bit) == 0
             is_pressed = (bitmask & bit) == 0
             if is_pressed != was_pressed:
-                self.button_event.emit(session.address, mapping.name, is_pressed)
+                self.button_event(session.address, mapping.name, is_pressed)
                 if is_pressed and mapping.key:
                     self.injector.tap(mapping.key)
                     logger.info("%s: %s -> %s", session.name, mapping.name, mapping.key)
 
     async def _run_session(self, device: BLEDevice, session: _Session) -> None:
-        self.device_status_changed.emit(session.address, session.name, STATUS_CONNECTING)
+        self.device_status_changed(session.address, session.name, STATUS_CONNECTING)
         client = ZwiftClickClient(device, lambda bitmask: self._on_button(session, bitmask))
         try:
             async with self._connect_lock:
                 await client.connect()
         except Exception:
             logger.exception("%s: failed to connect", session.name)
-            self.device_status_changed.emit(session.address, session.name, STATUS_DISCONNECTED)
+            self.device_status_changed(session.address, session.name, STATUS_DISCONNECTED)
             return
 
-        self.device_status_changed.emit(session.address, session.name, STATUS_CONNECTED)
+        self.device_status_changed(session.address, session.name, STATUS_CONNECTED)
         session.last_bitmask = None
         session.last_activity = time.monotonic()
         session.disconnect_requested = False
@@ -165,7 +175,7 @@ class BridgeApp(QObject):
         finally:
             session.disconnect_requested = False
             await client.disconnect()
-            self.device_status_changed.emit(session.address, session.name, STATUS_DISCONNECTED)
+            self.device_status_changed(session.address, session.name, STATUS_DISCONNECTED)
 
     async def run(self) -> None:
         await self._scanner.start()
@@ -179,8 +189,6 @@ class BridgeApp(QObject):
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    qt_app = QApplication([])
-
     loop = asyncio.new_event_loop()
     bridge = BridgeApp(loop)
 
@@ -188,10 +196,11 @@ def main() -> None:
         bridge.keymap.buttons,
         on_toggle_listening=bridge.set_listening,
         on_disconnect_device=bridge.disconnect_device,
+        on_mapping_changed=bridge.save_keymap,
         on_close=bridge.request_stop,
     )
-    bridge.device_status_changed.connect(window.on_device_status_changed)
-    bridge.button_event.connect(window.on_button_event)
+    bridge.device_status_changed = window.on_device_status_changed
+    bridge.button_event = window.on_button_event
 
     def run_loop() -> None:
         asyncio.set_event_loop(loop)
@@ -200,8 +209,7 @@ def main() -> None:
     thread = threading.Thread(target=run_loop, daemon=True)
     thread.start()
 
-    window.show()
-    qt_app.exec()
+    window.run()
 
 
 if __name__ == "__main__":

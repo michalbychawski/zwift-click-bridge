@@ -25,7 +25,7 @@ jobs:
       - name: Build exe
         run: |
           pyinstaller --onefile --windowed --name ZwiftClickBridge `
-            --collect-all PySide6 --collect-all bleak `
+            --collect-all bleak `
             scripts/windows_entry.py
 
       - name: Upload artifact

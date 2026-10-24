@@ -1,4 +1,5 @@
 {
+  "controller_side": "right",
   "reconnect_delay_seconds": 3,
   "idle_disconnect_seconds": 600,
   "post_idle_cooldown_seconds": 90,

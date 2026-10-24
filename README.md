@@ -76,19 +76,21 @@ toggle. Then run the real bridge, which actually types the mapped keys:
 zwift-click-bridge                # Windows, venv activated
 ```
 
-This opens a window that scans continuously for Click controllers. A panel
-appears for each one it finds, showing:
+This opens a window that scans continuously for the **right** Click v2 pod
+(the left pod is ignored -- pressing the right pod also shows up on the
+left pod's connection, so connecting both made every press count twice).
+The window shows:
 
 - A status dot (gray = disconnected, yellow = connecting, green = connected).
 - A box per button that flashes briefly on every press -- handy for
   confirming the controller and the bridge are both working.
-- A **Disconnect** button to deliberately drop that controller's connection
-  (e.g. to let it go to sleep). It reconnects automatically the next time
-  you press one of its paddles.
+- A **Disconnect** button to deliberately drop the connection (e.g. to let
+  it go to sleep). It reconnects automatically the next time you press one
+  of its paddles.
 
-If you have two Click units (e.g. one per hand), both get their own panel
-and connect/disconnect independently -- you don't need to press them at the
-same time, and losing one doesn't affect the other.
+**Remapping at runtime:** click any button box, then press the key it should
+send (Esc cancels). Right-click a box to unmap it. Changes take effect
+immediately and are saved to the config file.
 
 The **Stop Listening** / **Start Listening** button at the bottom pauses or
 resumes scanning entirely, disconnecting everything while stopped. Closing
@@ -103,6 +105,7 @@ A config file is created on first run at:
 
 ```json
 {
+  "controller_side": "right",
   "reconnect_delay_seconds": 3,
   "idle_disconnect_seconds": 600,
   "post_idle_cooldown_seconds": 90,
@@ -121,8 +124,10 @@ A config file is created on first run at:
 }
 ```
 
-This config is shared across every controller the bridge connects to --
-there's currently no per-device key mapping.
+`controller_side` picks which Click v2 pod to connect to (`"right"` or
+`"left"`). The side is read from the pod's BLE advertisement, and the log
+prints each pod's device type when it's first seen (`0x0a` = right, `0x0b` =
+left).
 
 All 10 bit positions from Zwift's shared accessory protocol are listed. On
 a real Click v2 the two paddles -- `0x100` (shift down) and `0x1000` (shift

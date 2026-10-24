@@ -5,6 +5,10 @@ from pynput.keyboard import Controller, Key
 _SPECIAL_KEYS = {k.name: k for k in Key}
 
 
+def is_valid_key(key_name: str) -> bool:
+    return len(key_name) == 1 or key_name.lower() in _SPECIAL_KEYS
+
+
 class KeyInjector:
     def __init__(self):
         self._controller = Controller()

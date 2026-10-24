@@ -51,3 +51,13 @@ BUTTON_BIT_SHIFT_UP = 0x1000
 BUTTON_BIT_SHIFT_DOWN = 0x100
 
 DEVICE_NAME_HINTS = ("Zwift Click",)
+
+# Each Click v2 pod advertises manufacturer data under Zwift's company ID whose
+# first byte says which side it is (same values BikeControl uses). Pressing the
+# right pod also shows up on the left pod's notify stream, so connecting both
+# double-counts every press -- we only ever connect one side.
+ZWIFT_MANUFACTURER_ID = 0x094A
+DEVICE_TYPE_BY_SIDE = {
+    "right": 0x0A,
+    "left": 0x0B,
+}

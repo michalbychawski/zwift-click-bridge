@@ -26,7 +26,11 @@ DEFAULT_IDLE_DISCONNECT_SECONDS = 600
 # catches that lingering advertisement and never lets it fully sleep.
 DEFAULT_POST_IDLE_COOLDOWN_SECONDS = 90
 
+# Only one Click v2 pod is connected -- see constants.DEVICE_TYPE_BY_SIDE.
+DEFAULT_CONTROLLER_SIDE = "right"
+
 DEFAULT_CONFIG = {
+    "controller_side": DEFAULT_CONTROLLER_SIDE,
     "reconnect_delay_seconds": 3,
     "idle_disconnect_seconds": DEFAULT_IDLE_DISCONNECT_SECONDS,
     "post_idle_cooldown_seconds": DEFAULT_POST_IDLE_COOLDOWN_SECONDS,
@@ -45,10 +49,12 @@ class ButtonMapping:
 
 @dataclass
 class KeyMap:
+    controller_side: str
     reconnect_delay_seconds: float
     idle_disconnect_seconds: float
     post_idle_cooldown_seconds: float
     buttons: dict[int, ButtonMapping]
+    path: Path = DEFAULT_CONFIG_PATH
 
     @classmethod
     def load(cls, path: Path = DEFAULT_CONFIG_PATH) -> "KeyMap":
@@ -63,9 +69,26 @@ class KeyMap:
             int(bit, 16) if bit.lower().startswith("0x") else int(bit): ButtonMapping(**mapping)
             for bit, mapping in raw["buttons"].items()
         }
+        side = str(raw.get("controller_side", DEFAULT_CONTROLLER_SIDE)).lower()
         return cls(
+            controller_side=side if side in constants.DEVICE_TYPE_BY_SIDE else DEFAULT_CONTROLLER_SIDE,
             reconnect_delay_seconds=raw["reconnect_delay_seconds"],
             idle_disconnect_seconds=raw.get("idle_disconnect_seconds", DEFAULT_IDLE_DISCONNECT_SECONDS),
             post_idle_cooldown_seconds=raw.get("post_idle_cooldown_seconds", DEFAULT_POST_IDLE_COOLDOWN_SECONDS),
             buttons=buttons,
+            path=path,
         )
+
+    def save(self) -> None:
+        raw = {
+            "controller_side": self.controller_side,
+            "reconnect_delay_seconds": self.reconnect_delay_seconds,
+            "idle_disconnect_seconds": self.idle_disconnect_seconds,
+            "post_idle_cooldown_seconds": self.post_idle_cooldown_seconds,
+            "buttons": {
+                hex(bit): {"name": mapping.name, "key": mapping.key}
+                for bit, mapping in self.buttons.items()
+            },
+        }
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(raw, indent=2))
