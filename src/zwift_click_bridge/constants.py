@@ -22,9 +22,18 @@ ACTIVATION_WRITES = [
     bytes([0x00, 0x08, 0x10]),
 ]
 
-# Sent repeatedly or the device goes idle and the connection drops after ~60s.
+# Sent every KEEPALIVE_INTERVAL_SECONDS. The Click answers each RideOn (SYNC_TX echo), but a
+# log from 2026-10-28 showed it still stops answering and drops ~60 s after the last button
+# press: RideOn does not reset its own inactivity timer. The "get" requests below (the same
+# ones activation sends: 0x00 = GET, field 1 = what to get; the Click answers 0x3c) are an
+# experiment, `keepalive_mode` in the config, to see whether a request does reset it.
 KEEPALIVE_WRITE = RIDE_ON
 KEEPALIVE_INTERVAL_SECONDS = 3.0
+KEEPALIVE_GETS = [
+    bytes([0x00, 0x08, 0x00]),  # device info (answer: 3c 08 00 12 ... "Zwift Click2" ...)
+    bytes([0x00, 0x08, 0x10]),  # object 0x10 (answer: 3c 08 10)
+]
+KEEPALIVE_MODES = ("rideon", "rideon+get", "get")
 
 BUTTON_OPCODE = 0x23  # payload[0] for button-state notifications on CHAR_ASYNC_NOTIFY
 

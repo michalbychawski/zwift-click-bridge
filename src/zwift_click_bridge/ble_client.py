@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import Counter
 from collections.abc import Callable
 
 from bleak import BleakClient, BleakScanner
@@ -79,9 +80,11 @@ class DeviceScanner:
 
 
 class ZwiftClickClient:
-    def __init__(self, device: BLEDevice, on_button: ButtonHandler):
+    def __init__(self, device: BLEDevice, on_button: ButtonHandler, keepalive_mode: str = "rideon"):
         self._device = device
         self._on_button = on_button
+        self._keepalive_mode = keepalive_mode
+        self._reply_types: Counter[int] = Counter()
         self._client: BleakClient | None = None
         self._keepalive_task: asyncio.Task | None = None
         self._connected_at: float | None = None
@@ -91,6 +94,9 @@ class ZwiftClickClient:
         self._notifications = 0
         self._other_notifications = 0
         self._last_notify_at: float | None = None
+
+    def _reply_summary(self) -> str:
+        return "{" + ", ".join(f"0x{op:02x}: {n}" for op, n in sorted(self._reply_types.items())) + "}"
 
     def _ago(self, at: float | None) -> str:
         return f"{time.monotonic() - at:.0f}s ago" if at is not None else "never"
@@ -117,6 +123,8 @@ class ZwiftClickClient:
         # this subscription saw the Click drop about once a minute despite the keepalive.
         self._sync_replies += 1
         self._last_reply_at = time.monotonic()
+        if data:
+            self._reply_types[data[0]] += 1
         if self._sync_replies <= 5:
             logger.info("SYNC_TX reply #%d: %s", self._sync_replies, bytes(data).hex())
         else:
@@ -145,8 +153,16 @@ class ZwiftClickClient:
             ticks += 1
             # A failed write used to end this task silently (nothing awaits it), so the
             # keepalive stopped and the Click went idle and dropped about a minute later.
+            writes = []
+            if self._keepalive_mode in ("rideon", "rideon+get"):
+                writes.append(constants.KEEPALIVE_WRITE)
+            # "get": a request every tick; "rideon+get": one every other tick, beside the RideOn.
+            if self._keepalive_mode == "get" or (self._keepalive_mode == "rideon+get" and ticks % 2 == 0):
+                step = ticks if self._keepalive_mode == "get" else ticks // 2
+                writes.append(constants.KEEPALIVE_GETS[step % len(constants.KEEPALIVE_GETS)])
             try:
-                await self._client.write_gatt_char(constants.CHAR_SYNC_RX_WRITE, constants.KEEPALIVE_WRITE, response=False)
+                for payload in writes:
+                    await self._client.write_gatt_char(constants.CHAR_SYNC_RX_WRITE, payload, response=False)
                 self._keepalives_sent += 1
                 if failures:
                     logger.info("keepalive writes work again after %d failure(s)", failures)
@@ -159,9 +175,11 @@ class ZwiftClickClient:
                     logger.exception("keepalive write failed (%d in a row)", failures)
             if ticks % 10 == 0:  # every 30 s
                 logger.info(
-                    "still connected: %d keepalives sent, %d replies (last %s), %d notifications (last %s)",
+                    "still connected: %d keepalives sent (%s), %d replies %s (last %s), %d notifications (last %s)",
                     self._keepalives_sent,
+                    self._keepalive_mode,
                     self._sync_replies,
+                    self._reply_summary(),
                     self._ago(self._last_reply_at),
                     self._notifications,
                     self._ago(self._last_notify_at),
@@ -203,7 +221,7 @@ class ZwiftClickClient:
             await asyncio.sleep(0.3)
 
         self._keepalive_task = asyncio.create_task(self._keepalive_loop())
-        logger.info("Zwift Click connected and activated")
+        logger.info("Zwift Click connected and activated (keepalive: %s)", self._keepalive_mode)
 
     async def disconnect(self) -> None:
         if self._keepalive_task is not None:

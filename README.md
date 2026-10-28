@@ -14,11 +14,10 @@ of that: it skips the full ECDH handshake Zwift Play/Ride use, and instead:
 1. Connects over BLE, subscribes to button notifications and to the device's
    SYNC_TX indications (its replies to activation and keepalive writes), and
    writes a short 3-message activation sequence.
-2. Sends a bare `RideOn` keepalive write every 3 seconds (skipping this makes
-   the device go idle and disconnect after about a minute). Without the SYNC_TX
-   subscription, the bridge saw the Click drop about once a minute even with the
-   keepalive, so both are needed. A failed keepalive write is logged and retried
-   on the next tick rather than stopping the keepalive.
+2. Sends a keepalive write every 3 seconds (`keepalive_mode`, see below). A
+   failed keepalive write is logged and retried on the next tick rather than
+   stopping the keepalive. Note that a right pod was seen to answer every
+   `RideOn` and still drop about 60 s after the last button press.
 3. Reads button state from unencrypted notifications (opcode `0x23`): a
    bitmask where bit `0x1000` is shift-up and bit `0x100` is shift-down, with
    `0` meaning pressed.
@@ -114,6 +113,7 @@ A config file is created on first run at:
   "reconnect_delay_seconds": 3,
   "idle_disconnect_seconds": 600,
   "post_idle_cooldown_seconds": 90,
+  "keepalive_mode": "rideon+get",
   "buttons": {
     "0x1": {"name": "left", "key": null},
     "0x2": {"name": "up", "key": null},
@@ -159,6 +159,16 @@ The Click keeps advertising for a while (tens of seconds) after any
 disconnect before it actually sleeps; without this cooldown the bridge
 would immediately reconnect to that lingering advertisement and the
 controller would never actually get to sleep.
+
+`keepalive_mode` (default `"rideon+get"`) is what the keepalive sends every
+3 seconds: `"rideon"` (a bare `RideOn` only, as before), `"rideon+get"` (the
+`RideOn` plus, every other tick, one of the two "get" requests activation sends,
+`00 08 00` / `00 08 10`), or `"get"` (only those requests). This is an
+experiment: a log from a real right pod showed it answering every `RideOn`
+and still going silent and dropping about 60 s after the last button press,
+so `RideOn` alone doesn't reset the Click's own inactivity timer. The log's
+30-second status lines show which modes keep it connected past a minute of
+no presses.
 
 ## Platform notes
 

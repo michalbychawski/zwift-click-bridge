@@ -144,7 +144,7 @@ class BridgeApp:
 
     async def _run_session(self, device: BLEDevice, session: _Session) -> None:
         self.device_status_changed(session.address, session.name, STATUS_CONNECTING)
-        client = ZwiftClickClient(device, lambda bitmask: self._on_button(session, bitmask))
+        client = ZwiftClickClient(device, lambda bitmask: self._on_button(session, bitmask), self.keymap.keepalive_mode)
         started = time.monotonic()
         try:
             async with self._connect_lock:

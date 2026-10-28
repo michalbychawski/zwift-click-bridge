@@ -29,11 +29,15 @@ DEFAULT_POST_IDLE_COOLDOWN_SECONDS = 90
 # Only one Click v2 pod is connected -- see constants.DEVICE_TYPE_BY_SIDE.
 DEFAULT_CONTROLLER_SIDE = "right"
 
+# What the keepalive sends -- see constants.KEEPALIVE_GETS.
+DEFAULT_KEEPALIVE_MODE = "rideon+get"
+
 DEFAULT_CONFIG = {
     "controller_side": DEFAULT_CONTROLLER_SIDE,
     "reconnect_delay_seconds": 3,
     "idle_disconnect_seconds": DEFAULT_IDLE_DISCONNECT_SECONDS,
     "post_idle_cooldown_seconds": DEFAULT_POST_IDLE_COOLDOWN_SECONDS,
+    "keepalive_mode": DEFAULT_KEEPALIVE_MODE,
     "buttons": {
         hex(bit): {"name": name, "key": _DEFAULT_KEYS.get(bit)}
         for bit, name in constants.BUTTON_BITS.items()
@@ -53,6 +57,7 @@ class KeyMap:
     reconnect_delay_seconds: float
     idle_disconnect_seconds: float
     post_idle_cooldown_seconds: float
+    keepalive_mode: str
     buttons: dict[int, ButtonMapping]
     path: Path = DEFAULT_CONFIG_PATH
 
@@ -70,11 +75,13 @@ class KeyMap:
             for bit, mapping in raw["buttons"].items()
         }
         side = str(raw.get("controller_side", DEFAULT_CONTROLLER_SIDE)).lower()
+        mode = str(raw.get("keepalive_mode", DEFAULT_KEEPALIVE_MODE)).lower()
         return cls(
             controller_side=side if side in constants.DEVICE_TYPE_BY_SIDE else DEFAULT_CONTROLLER_SIDE,
             reconnect_delay_seconds=raw["reconnect_delay_seconds"],
             idle_disconnect_seconds=raw.get("idle_disconnect_seconds", DEFAULT_IDLE_DISCONNECT_SECONDS),
             post_idle_cooldown_seconds=raw.get("post_idle_cooldown_seconds", DEFAULT_POST_IDLE_COOLDOWN_SECONDS),
+            keepalive_mode=mode if mode in constants.KEEPALIVE_MODES else DEFAULT_KEEPALIVE_MODE,
             buttons=buttons,
             path=path,
         )
@@ -85,6 +92,7 @@ class KeyMap:
             "reconnect_delay_seconds": self.reconnect_delay_seconds,
             "idle_disconnect_seconds": self.idle_disconnect_seconds,
             "post_idle_cooldown_seconds": self.post_idle_cooldown_seconds,
+            "keepalive_mode": self.keepalive_mode,
             "buttons": {
                 hex(bit): {"name": mapping.name, "key": mapping.key}
                 for bit, mapping in self.buttons.items()

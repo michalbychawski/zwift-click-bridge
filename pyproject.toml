@@ -1,6 +1,6 @@
 [project]
 name = "zwift-click-bridge"
-version = "0.2.3"
+version = "0.2.4"
 description = "Bridges Zwift Click v2 BLE button presses to keyboard key events (e.g. MyWhoosh MyShift I/K)"
 requires-python = ">=3.10"
 dependencies = [
