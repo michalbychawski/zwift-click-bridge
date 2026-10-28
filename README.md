@@ -1,9 +1,9 @@
 # zwift-click-bridge
 
 Pairs with one or more **Zwift Click v2** controllers over Bluetooth LE and
-maps their paddle buttons to keyboard key presses -- by default `I` (shift
-up) and `K` (shift down), matching [MyWhoosh](https://mywhoosh.com)'s
-MyShift virtual gearing keybinds. Works on macOS and Windows.
+maps their paddle buttons to keyboard key presses for [MyWhoosh](https://mywhoosh.com)'s
+MyShift virtual gearing keybinds (`I` = gear up, `K` = gear down). By default
+the `b` button sends `I`, and `shift_up` and `shift_down` both send `K`. Works on macOS and Windows.
 
 ## How it works
 
@@ -120,11 +120,11 @@ A config file is created on first run at:
     "0x4": {"name": "right", "key": null},
     "0x8": {"name": "down", "key": null},
     "0x10": {"name": "a", "key": null},
-    "0x20": {"name": "b", "key": "k"},
+    "0x20": {"name": "b", "key": "i"},
     "0x40": {"name": "y", "key": null},
     "0x80": {"name": "z", "key": null},
     "0x100": {"name": "shift_down", "key": "k"},
-    "0x1000": {"name": "shift_up", "key": "i"}
+    "0x1000": {"name": "shift_up", "key": "k"}
   }
 }
 ```

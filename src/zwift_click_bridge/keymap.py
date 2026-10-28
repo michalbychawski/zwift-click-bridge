@@ -8,12 +8,12 @@ from . import constants
 
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "zwift-click-bridge" / "config.json"
 
-# The two paddles are the main shift controls; "b" is also mapped to gear
-# down as a second trigger for it. The rest default to unmapped (key: null).
+# The user's choice (2026-10-28): "shift_up" sends K and "b" sends I; "shift_down"
+# stays on K. The rest default to unmapped (key: null).
 _DEFAULT_KEYS = {
-    constants.BUTTON_BIT_SHIFT_UP: "i",
+    constants.BUTTON_BIT_SHIFT_UP: "k",
     constants.BUTTON_BIT_SHIFT_DOWN: "k",
-    0x20: "k",  # "b"
+    0x20: "i",  # "b"
 }
 
 # Lets the Click drop into its own battery-saving sleep when unused, rather
