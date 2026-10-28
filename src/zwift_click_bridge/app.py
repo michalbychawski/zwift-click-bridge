@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.metadata
 import logging
+import platform
 import sys
 import threading
 import time
@@ -11,6 +13,7 @@ from logging.handlers import RotatingFileHandler
 
 from bleak.backends.device import BLEDevice
 
+from . import __version__, logview
 from .ble_client import DeviceScanner, ZwiftClickClient
 from .gui import MainWindow
 from .keyboard_out import KeyInjector
@@ -120,6 +123,7 @@ class BridgeApp:
         if session.cooldown_until is not None and time.monotonic() < session.cooldown_until:
             return  # recently disconnected on purpose -- ignore its lingering advertisement
 
+        logger.info("%s: seen, connecting", session.name)
         session.task = asyncio.create_task(self._run_session(device, session))
 
     def _on_button(self, session: _Session, bitmask: int) -> None:
@@ -141,11 +145,12 @@ class BridgeApp:
     async def _run_session(self, device: BLEDevice, session: _Session) -> None:
         self.device_status_changed(session.address, session.name, STATUS_CONNECTING)
         client = ZwiftClickClient(device, lambda bitmask: self._on_button(session, bitmask))
+        started = time.monotonic()
         try:
             async with self._connect_lock:
                 await client.connect()
         except Exception:
-            logger.exception("%s: failed to connect", session.name)
+            logger.exception("%s: failed to connect after %.1fs", session.name, time.monotonic() - started)
             self.device_status_changed(session.address, session.name, STATUS_DISCONNECTED)
             return
 
@@ -175,6 +180,13 @@ class BridgeApp:
                     break
 
                 await asyncio.sleep(1.0)
+            else:
+                if not client.is_connected:
+                    logger.warning(
+                        "%s: connection lost (last button activity %.0fs ago); reconnecting when it advertises again",
+                        session.name,
+                        time.monotonic() - session.last_activity,
+                    )
         finally:
             session.disconnect_requested = False
             await client.disconnect()
@@ -201,7 +213,21 @@ def _setup_logging() -> None:
         handlers.append(RotatingFileHandler(LOG_PATH, maxBytes=1_000_000, backupCount=2, encoding="utf-8"))
     except OSError:
         pass
-    logging.basicConfig(level=logging.INFO, format=fmt, handlers=handlers or None)
+    # The window's log panel and its Copy button.
+    handlers.append(logview.buffer)
+    logging.basicConfig(level=logging.INFO, format=fmt, handlers=handlers)
+    try:
+        bleak_version = importlib.metadata.version("bleak")
+    except importlib.metadata.PackageNotFoundError:
+        bleak_version = "unknown"
+    logger.info(
+        "Zwift Click Bridge %s on %s (Python %s, bleak %s); log file %s",
+        __version__,
+        platform.platform(),
+        platform.python_version(),
+        bleak_version,
+        LOG_PATH,
+    )
 
 
 def main() -> None:

@@ -4,6 +4,7 @@ import queue
 import tkinter as tk
 from collections.abc import Callable
 
+from . import logview
 from .keyboard_out import is_valid_key
 from .keymap import ButtonMapping
 
@@ -22,6 +23,8 @@ _CAPTURE_BG = "#2d6cdf"
 
 _FLASH_MS = 180
 _POLL_MS = 20
+_LOG_POLL_MS = 300
+_LOG_VIEW_LINES = 500  # kept in the panel; Copy takes the whole buffer (logview.MAX_LINES)
 _INDICATOR_COLUMNS = 4
 
 # Tk keysyms whose pynput Key name differs from just lowercasing them.
@@ -170,10 +173,30 @@ class MainWindow:
         self._show_default_hint()
 
         self._toggle_button = tk.Button(self.root, text="Stop Listening", command=self._handle_toggle)
-        self._toggle_button.pack(fill="x", padx=10, pady=(0, 10))
+        self._toggle_button.pack(fill="x", padx=10, pady=(0, 6))
+
+        # The log, for pasting into a bug report: Copy puts the whole recent log on the clipboard.
+        log_panel = tk.Frame(self.root, bg=_PANEL_BG, padx=6, pady=6)
+        log_panel.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        log_bar = tk.Frame(log_panel, bg=_PANEL_BG)
+        log_bar.pack(fill="x", pady=(0, 4))
+        tk.Label(log_bar, text="Log", bg=_PANEL_BG, fg="white", font=("Segoe UI", 10, "bold")).pack(side="left")
+        self._copy_status = tk.Label(log_bar, bg=_PANEL_BG, fg="#2ecc71")
+        self._copy_status.pack(side="left", padx=8)
+        tk.Button(log_bar, text="Copy log", command=self._copy_log).pack(side="right")
+        log_frame = tk.Frame(log_panel, bg=_PANEL_BG)
+        log_frame.pack(fill="both", expand=True)
+        scrollbar = tk.Scrollbar(log_frame)
+        scrollbar.pack(side="right", fill="y")
+        self._log_text = tk.Text(log_frame, height=10, width=90, bg="#111111", fg="#cccccc", insertbackground="#cccccc",
+                                 font=("Consolas", 8), wrap="none", state="disabled", yscrollcommand=scrollbar.set)
+        self._log_text.pack(side="left", fill="both", expand=True)
+        scrollbar.configure(command=self._log_text.yview)
+        self._log_seen = 0
 
         self._set_status("disconnected")
         self.root.after(_POLL_MS, self._drain_events)
+        self.root.after(_LOG_POLL_MS, self._refresh_log)
 
     def run(self) -> None:
         self.root.mainloop()
@@ -205,6 +228,28 @@ class MainWindow:
                 if tile is not None:
                     tile.flash()
         self.root.after(_POLL_MS, self._drain_events)
+
+    def _refresh_log(self) -> None:
+        lines, self._log_seen = logview.buffer.since(self._log_seen)
+        if lines:
+            at_bottom = self._log_text.yview()[1] >= 0.999
+            self._log_text.configure(state="normal")
+            self._log_text.insert("end", "\n".join(lines) + "\n")
+            extra = int(self._log_text.index("end-1c").split(".")[0]) - 1 - _LOG_VIEW_LINES
+            if extra > 0:
+                self._log_text.delete("1.0", f"{extra + 1}.0")
+            self._log_text.configure(state="disabled")
+            if at_bottom:
+                self._log_text.see("end")
+        self.root.after(_LOG_POLL_MS, self._refresh_log)
+
+    def _copy_log(self) -> None:
+        text = logview.buffer.text()
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.root.update()  # keeps the clipboard filled on Windows after the call returns
+        self._copy_status.configure(text=f"copied {text.count(chr(10)) + 1 if text else 0} lines")
+        self.root.after(3000, lambda: self._copy_status.configure(text=""))
 
     def _set_status(self, status: str) -> None:
         color, text = _STATUS_STYLE.get(status, ("#999999", status))

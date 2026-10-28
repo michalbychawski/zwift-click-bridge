@@ -87,11 +87,28 @@ class ZwiftClickClient:
         self._connected_at: float | None = None
         self._keepalives_sent = 0
         self._sync_replies = 0
+        self._last_reply_at: float | None = None
+        self._notifications = 0
+        self._other_notifications = 0
+        self._last_notify_at: float | None = None
+
+    def _ago(self, at: float | None) -> str:
+        return f"{time.monotonic() - at:.0f}s ago" if at is not None else "never"
 
     def _on_notify(self, _char, data: bytearray) -> None:
-        bitmask = decode_button_bitmask(bytes(data))
+        raw = bytes(data)
+        self._notifications += 1
+        self._last_notify_at = time.monotonic()
+        bitmask = decode_button_bitmask(raw)
         if bitmask is not None:
+            logger.debug("button frame %s -> 0x%x", raw.hex(), bitmask)
             self._on_button(bitmask)
+            return
+        # Not a button frame (battery, status, a message before sleeping...): log the first
+        # ones and then now and then, so a drop can be matched to what the Click sent.
+        self._other_notifications += 1
+        if self._other_notifications <= 20 or self._other_notifications % 50 == 0:
+            logger.info("other notification #%d: %s", self._other_notifications, raw.hex())
 
     def _on_sync_tx(self, _char, data: bytearray) -> None:
         # The device answers activation and every keepalive here. Nothing to act on, but the
@@ -99,23 +116,33 @@ class ZwiftClickClient:
         # awake, subscribed to every notify/indicate characteristic, and the bridge without
         # this subscription saw the Click drop about once a minute despite the keepalive.
         self._sync_replies += 1
-        logger.debug("SYNC_TX reply: %s", bytes(data).hex())
+        self._last_reply_at = time.monotonic()
+        if self._sync_replies <= 5:
+            logger.info("SYNC_TX reply #%d: %s", self._sync_replies, bytes(data).hex())
+        else:
+            logger.debug("SYNC_TX reply: %s", bytes(data).hex())
 
     def _on_disconnected(self, _client: BleakClient) -> None:
         # May run off the asyncio thread on some backends, so plain monotonic time.
         connected_for = time.monotonic() - self._connected_at if self._connected_at is not None else 0.0
         logger.warning(
-            "Zwift Click disconnected after %.0fs (%d keepalives sent, %d replies received)",
+            "Zwift Click disconnected after %.0fs (%d keepalives sent, %d replies, last reply %s; "
+            "%d notifications, last %s)",
             connected_for,
             self._keepalives_sent,
             self._sync_replies,
+            self._ago(self._last_reply_at),
+            self._notifications,
+            self._ago(self._last_notify_at),
         )
 
     async def _keepalive_loop(self) -> None:
         assert self._client is not None
         failures = 0
+        ticks = 0
         while True:
             await asyncio.sleep(constants.KEEPALIVE_INTERVAL_SECONDS)
+            ticks += 1
             # A failed write used to end this task silently (nothing awaits it), so the
             # keepalive stopped and the Click went idle and dropped about a minute later.
             try:
@@ -130,15 +157,39 @@ class ZwiftClickClient:
                 failures += 1
                 if failures == 1 or failures % 10 == 0:
                     logger.exception("keepalive write failed (%d in a row)", failures)
+            if ticks % 10 == 0:  # every 30 s
+                logger.info(
+                    "still connected: %d keepalives sent, %d replies (last %s), %d notifications (last %s)",
+                    self._keepalives_sent,
+                    self._sync_replies,
+                    self._ago(self._last_reply_at),
+                    self._notifications,
+                    self._ago(self._last_notify_at),
+                )
 
     async def connect(self) -> None:
+        started = time.monotonic()
+        logger.info("connecting to %s (%s)", self._device.name, self._device.address)
         self._client = BleakClient(self._device, disconnected_callback=self._on_disconnected)
         await self._client.connect()
         self._connected_at = time.monotonic()
+        try:
+            mtu = self._client.mtu_size
+        except Exception:  # noqa: BLE001 - not every backend knows it
+            mtu = "?"
+        logger.info("BLE connected in %.1fs, MTU %s", self._connected_at - started, mtu)
+        try:
+            for service in self._client.services:
+                if service.uuid.lower() == constants.SERVICE_UUID.lower():
+                    for char in service.characteristics:
+                        logger.info("  characteristic %s: %s", char.uuid, ",".join(char.properties))
+        except Exception:  # noqa: BLE001 - only a log line
+            pass
 
         await self._client.start_notify(constants.CHAR_ASYNC_NOTIFY, self._on_notify)
         try:
             await self._client.start_notify(constants.CHAR_SYNC_TX_INDICATE, self._on_sync_tx)
+            logger.info("subscribed to button notifications and SYNC_TX indications")
         except Exception:
             logger.exception("could not subscribe to SYNC_TX indications; continuing without them")
         # Some units need a moment for the notify subscription to actually settle before

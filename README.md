@@ -181,10 +181,14 @@ for ~20 seconds and reconnected cleanly).
 
 ## Troubleshooting
 
-- The bridge writes its log to `~/.config/zwift-click-bridge/bridge.log`
-  (also on Windows, under your user folder; the `.exe` has no console). Every
-  drop is logged as `Zwift Click disconnected after Ns (K keepalives sent,
-  R replies received)`, and failed keepalive writes are logged too.
+- The window has a **Log** panel at the bottom; **Copy log** puts the recent
+  log (up to 3000 lines) on the clipboard for a bug report. The same log goes
+  to `~/.config/zwift-click-bridge/bridge.log` (also on Windows, under your user
+  folder; the `.exe` has no console). It records the app version and system,
+  each connect (time, MTU, characteristics), the Click's first replies, a
+  status line every 30 s while connected, any non-button messages from the
+  Click, failed keepalive writes, and every drop with how long it lasted and
+  when the last reply and notification arrived.
 - `zwift-click-spike` prints every decoded button bitmask -- use it to
   confirm the Click is reachable and behaving before blaming the bridge.
 - `zwift-click-sniff` is a lower-level diagnostic that subscribes to every
