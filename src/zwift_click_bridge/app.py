@@ -2,19 +2,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from logging.handlers import RotatingFileHandler
 
 from bleak.backends.device import BLEDevice
 
 from .ble_client import DeviceScanner, ZwiftClickClient
 from .gui import MainWindow
 from .keyboard_out import KeyInjector
-from .keymap import KeyMap
+from .keymap import DEFAULT_CONFIG_PATH, KeyMap
 
 logger = logging.getLogger(__name__)
+LOG_PATH = DEFAULT_CONFIG_PATH.parent / "bridge.log"
 
 STATUS_CONNECTING = "connecting"
 STATUS_CONNECTED = "connected"
@@ -186,8 +189,23 @@ class BridgeApp:
                 session.task.cancel()
 
 
+def _setup_logging() -> None:
+    """Console, plus a small rotating file beside the config: the Windows .exe is built
+    --windowed, so without the file its log (connects, drops, keepalive errors) is lost."""
+    fmt = "%(asctime)s %(levelname)s %(message)s"
+    handlers: list[logging.Handler] = []
+    if sys.stderr is not None:
+        handlers.append(logging.StreamHandler())
+    try:
+        DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(RotatingFileHandler(LOG_PATH, maxBytes=1_000_000, backupCount=2, encoding="utf-8"))
+    except OSError:
+        pass
+    logging.basicConfig(level=logging.INFO, format=fmt, handlers=handlers or None)
+
+
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    _setup_logging()
 
     loop = asyncio.new_event_loop()
     bridge = BridgeApp(loop)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 
 from bleak import BleakClient, BleakScanner
@@ -83,23 +84,63 @@ class ZwiftClickClient:
         self._on_button = on_button
         self._client: BleakClient | None = None
         self._keepalive_task: asyncio.Task | None = None
+        self._connected_at: float | None = None
+        self._keepalives_sent = 0
+        self._sync_replies = 0
 
     def _on_notify(self, _char, data: bytearray) -> None:
         bitmask = decode_button_bitmask(bytes(data))
         if bitmask is not None:
             self._on_button(bitmask)
 
+    def _on_sync_tx(self, _char, data: bytearray) -> None:
+        # The device answers activation and every keepalive here. Nothing to act on, but the
+        # subscription has to exist: sniff.py, where the keepalive was found to keep the Click
+        # awake, subscribed to every notify/indicate characteristic, and the bridge without
+        # this subscription saw the Click drop about once a minute despite the keepalive.
+        self._sync_replies += 1
+        logger.debug("SYNC_TX reply: %s", bytes(data).hex())
+
+    def _on_disconnected(self, _client: BleakClient) -> None:
+        # May run off the asyncio thread on some backends, so plain monotonic time.
+        connected_for = time.monotonic() - self._connected_at if self._connected_at is not None else 0.0
+        logger.warning(
+            "Zwift Click disconnected after %.0fs (%d keepalives sent, %d replies received)",
+            connected_for,
+            self._keepalives_sent,
+            self._sync_replies,
+        )
+
     async def _keepalive_loop(self) -> None:
         assert self._client is not None
+        failures = 0
         while True:
             await asyncio.sleep(constants.KEEPALIVE_INTERVAL_SECONDS)
-            await self._client.write_gatt_char(constants.CHAR_SYNC_RX_WRITE, constants.KEEPALIVE_WRITE, response=False)
+            # A failed write used to end this task silently (nothing awaits it), so the
+            # keepalive stopped and the Click went idle and dropped about a minute later.
+            try:
+                await self._client.write_gatt_char(constants.CHAR_SYNC_RX_WRITE, constants.KEEPALIVE_WRITE, response=False)
+                self._keepalives_sent += 1
+                if failures:
+                    logger.info("keepalive writes work again after %d failure(s)", failures)
+                failures = 0
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                failures += 1
+                if failures == 1 or failures % 10 == 0:
+                    logger.exception("keepalive write failed (%d in a row)", failures)
 
     async def connect(self) -> None:
-        self._client = BleakClient(self._device)
+        self._client = BleakClient(self._device, disconnected_callback=self._on_disconnected)
         await self._client.connect()
+        self._connected_at = time.monotonic()
 
         await self._client.start_notify(constants.CHAR_ASYNC_NOTIFY, self._on_notify)
+        try:
+            await self._client.start_notify(constants.CHAR_SYNC_TX_INDICATE, self._on_sync_tx)
+        except Exception:
+            logger.exception("could not subscribe to SYNC_TX indications; continuing without them")
         # Some units need a moment for the notify subscription to actually settle before
         # the activation writes land -- skipping this makes exactly one button press
         # register and then the notify stream silently goes dead for the rest of the

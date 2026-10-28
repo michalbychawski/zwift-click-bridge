@@ -11,9 +11,14 @@ A Click that has already been paired with the real Zwift app at least once
 stays "unlocked" permanently on the hardware side. This tool takes advantage
 of that: it skips the full ECDH handshake Zwift Play/Ride use, and instead:
 
-1. Connects over BLE and writes a short 3-message activation sequence.
+1. Connects over BLE, subscribes to button notifications and to the device's
+   SYNC_TX indications (its replies to activation and keepalive writes), and
+   writes a short 3-message activation sequence.
 2. Sends a bare `RideOn` keepalive write every 3 seconds (skipping this makes
-   the device go idle and disconnect after about a minute).
+   the device go idle and disconnect after about a minute). Without the SYNC_TX
+   subscription, the bridge saw the Click drop about once a minute even with the
+   keepalive, so both are needed. A failed keepalive write is logged and retried
+   on the next tick rather than stopping the keepalive.
 3. Reads button state from unencrypted notifications (opcode `0x23`): a
    bitmask where bit `0x1000` is shift-up and bit `0x100` is shift-down, with
    `0` meaning pressed.
@@ -176,6 +181,10 @@ for ~20 seconds and reconnected cleanly).
 
 ## Troubleshooting
 
+- The bridge writes its log to `~/.config/zwift-click-bridge/bridge.log`
+  (also on Windows, under your user folder; the `.exe` has no console). Every
+  drop is logged as `Zwift Click disconnected after Ns (K keepalives sent,
+  R replies received)`, and failed keepalive writes are logged too.
 - `zwift-click-spike` prints every decoded button bitmask -- use it to
   confirm the Click is reachable and behaving before blaming the bridge.
 - `zwift-click-sniff` is a lower-level diagnostic that subscribes to every
