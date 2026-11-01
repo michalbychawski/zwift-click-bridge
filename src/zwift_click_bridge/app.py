@@ -13,7 +13,7 @@ from logging.handlers import RotatingFileHandler
 
 from bleak.backends.device import BLEDevice
 
-from . import __version__, logview
+from . import __version__, constants, logview
 from .ble_client import DeviceScanner, ZwiftClickClient
 from .gui import MainWindow
 from .keyboard_out import KeyInjector
@@ -38,6 +38,7 @@ class _Session:
     last_activity: float = field(default_factory=time.monotonic)
     cooldown_until: float | None = None
     disconnect_requested: bool = False
+    probe_sessions: int = 0
 
 
 def _noop(*_args) -> None:
@@ -144,7 +145,12 @@ class BridgeApp:
 
     async def _run_session(self, device: BLEDevice, session: _Session) -> None:
         self.device_status_changed(session.address, session.name, STATUS_CONNECTING)
-        client = ZwiftClickClient(device, lambda bitmask: self._on_button(session, bitmask), self.keymap.keepalive_mode)
+        keepalive_mode = self.keymap.keepalive_mode
+        if keepalive_mode == "probe":  # one candidate per connection, so a single ride tests them all
+            probes = list(constants.KEEPALIVE_PROBES)
+            keepalive_mode = probes[session.probe_sessions % len(probes)]
+            session.probe_sessions += 1
+        client = ZwiftClickClient(device, lambda bitmask: self._on_button(session, bitmask), keepalive_mode)
         started = time.monotonic()
         try:
             async with self._connect_lock:

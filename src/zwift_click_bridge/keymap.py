@@ -30,7 +30,7 @@ DEFAULT_POST_IDLE_COOLDOWN_SECONDS = 90
 DEFAULT_CONTROLLER_SIDE = "right"
 
 # What the keepalive sends -- see constants.KEEPALIVE_GETS.
-DEFAULT_KEEPALIVE_MODE = "rideon+get"
+DEFAULT_KEEPALIVE_MODE = "rideon"
 
 DEFAULT_CONFIG = {
     "controller_side": DEFAULT_CONTROLLER_SIDE,

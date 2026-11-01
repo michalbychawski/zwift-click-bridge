@@ -154,8 +154,10 @@ class ZwiftClickClient:
             # A failed write used to end this task silently (nothing awaits it), so the
             # keepalive stopped and the Click went idle and dropped about a minute later.
             writes = []
-            if self._keepalive_mode in ("rideon", "rideon+get"):
+            if self._keepalive_mode != "get":
                 writes.append(constants.KEEPALIVE_WRITE)
+            if self._keepalive_mode in constants.KEEPALIVE_PROBES:
+                writes.append(constants.KEEPALIVE_PROBES[self._keepalive_mode])
             # "get": a request every tick; "rideon+get": one every other tick, beside the RideOn.
             if self._keepalive_mode == "get" or (self._keepalive_mode == "rideon+get" and ticks % 2 == 0):
                 step = ticks if self._keepalive_mode == "get" else ticks // 2

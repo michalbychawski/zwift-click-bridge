@@ -33,7 +33,16 @@ KEEPALIVE_GETS = [
     bytes([0x00, 0x08, 0x00]),  # device info (answer: 3c 08 00 12 ... "Zwift Click2" ...)
     bytes([0x00, 0x08, 0x10]),  # object 0x10 (answer: 3c 08 10)
 ]
-KEEPALIVE_MODES = ("rideon", "rideon+get", "get")
+# Experiment after GET requests failed too (log from 2026-11-01): sent beside the RideOn on
+# SYNC_RX, to see whether either resets the idle timer. fake_release is a CONTROLLER_NOTIFICATION
+# in the all-released state, written to the pod; a fake press is left out on purpose, it could
+# come back as a real shift. game_state is an empty GAME_STATE_NOTIFICATION. RESET (0x18) and
+# POWER_OFF (0x0f) stay out too, both end the connection.
+KEEPALIVE_PROBES = {
+    "fake_release": bytes([0x23, 0x08, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F]),
+    "game_state": bytes([0x43]),
+}
+KEEPALIVE_MODES = ("rideon", "rideon+get", "get", *KEEPALIVE_PROBES, "probe")
 
 BUTTON_OPCODE = 0x23  # payload[0] for button-state notifications on CHAR_ASYNC_NOTIFY
 

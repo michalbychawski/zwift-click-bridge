@@ -113,7 +113,7 @@ A config file is created on first run at:
   "reconnect_delay_seconds": 3,
   "idle_disconnect_seconds": 600,
   "post_idle_cooldown_seconds": 90,
-  "keepalive_mode": "rideon+get",
+  "keepalive_mode": "rideon",
   "buttons": {
     "0x1": {"name": "left", "key": null},
     "0x2": {"name": "up", "key": null},
@@ -160,7 +160,7 @@ disconnect before it actually sleeps; without this cooldown the bridge
 would immediately reconnect to that lingering advertisement and the
 controller would never actually get to sleep.
 
-`keepalive_mode` (default `"rideon+get"`) is what the keepalive sends every
+`keepalive_mode` (default `"rideon"`) is what the keepalive sends every
 3 seconds: `"rideon"` (a bare `RideOn` only, as before), `"rideon+get"` (the
 `RideOn` plus, every other tick, one of the two "get" requests activation sends,
 `00 08 00` / `00 08 10`), or `"get"` (only those requests). This is an
@@ -168,7 +168,11 @@ experiment: a log from a real right pod showed it answering every `RideOn`
 and still going silent and dropping about 60 s after the last button press,
 so `RideOn` alone doesn't reset the Click's own inactivity timer. The log's
 30-second status lines show which modes keep it connected past a minute of
-no presses.
+no presses. Neither `"rideon"` nor `"rideon+get"` did, and `"rideon+get"` was
+reported to stop the buttons after a click. Two more experiments are
+`"fake_release"` (a `RideOn` plus an all-released button frame written to the
+pod) and `"game_state"` (a `RideOn` plus an empty game-state message), and
+`"probe"` alternates them, one per connection.
 
 ## Platform notes
 
