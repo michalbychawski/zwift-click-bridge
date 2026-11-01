@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Callable
 
 from bleak import BleakClient, BleakScanner
@@ -80,10 +80,20 @@ class DeviceScanner:
 
 
 class ZwiftClickClient:
-    def __init__(self, device: BLEDevice, on_button: ButtonHandler, keepalive_mode: str = "rideon"):
+    def __init__(
+        self,
+        device: BLEDevice,
+        on_button: ButtonHandler,
+        keepalive_mode: str = "rideon",
+        use_cached_services: bool = False,
+        diagnostic_writes: bool = False,
+    ):
         self._device = device
         self._on_button = on_button
         self._keepalive_mode = keepalive_mode
+        self._use_cached_services = use_cached_services
+        self._diagnostic_writes = diagnostic_writes
+        self._recent_frames: deque[str] = deque(maxlen=12)
         self._reply_types: Counter[int] = Counter()
         self._client: BleakClient | None = None
         self._keepalive_task: asyncio.Task | None = None
@@ -113,6 +123,7 @@ class ZwiftClickClient:
         # Not a button frame (battery, status, a message before sleeping...): log the first
         # ones and then now and then, so a drop can be matched to what the Click sent.
         self._other_notifications += 1
+        self._recent_frames.append(f"notify {raw.hex()}")
         if self._other_notifications <= 20 or self._other_notifications % 50 == 0:
             logger.info("other notification #%d: %s", self._other_notifications, raw.hex())
 
@@ -125,7 +136,10 @@ class ZwiftClickClient:
         self._last_reply_at = time.monotonic()
         if data:
             self._reply_types[data[0]] += 1
-        if self._sync_replies <= 5:
+        is_ride_on_echo = bytes(data[:6]) == constants.RIDE_ON
+        if not is_ride_on_echo:
+            self._recent_frames.append(f"sync {bytes(data).hex()}")
+        if self._sync_replies <= 5 or (not is_ride_on_echo and self._sync_replies <= 200):
             logger.info("SYNC_TX reply #%d: %s", self._sync_replies, bytes(data).hex())
         else:
             logger.debug("SYNC_TX reply: %s", bytes(data).hex())
@@ -143,6 +157,8 @@ class ZwiftClickClient:
             self._notifications,
             self._ago(self._last_notify_at),
         )
+        if self._recent_frames:
+            logger.warning("last non-button frames before the drop: %s", ", ".join(self._recent_frames))
 
     async def _keepalive_loop(self) -> None:
         assert self._client is not None
@@ -154,10 +170,8 @@ class ZwiftClickClient:
             # A failed write used to end this task silently (nothing awaits it), so the
             # keepalive stopped and the Click went idle and dropped about a minute later.
             writes = []
-            if self._keepalive_mode != "get":
+            if self._keepalive_mode in ("rideon", "rideon+get"):
                 writes.append(constants.KEEPALIVE_WRITE)
-            if self._keepalive_mode in constants.KEEPALIVE_PROBES:
-                writes.append(constants.KEEPALIVE_PROBES[self._keepalive_mode])
             # "get": a request every tick; "rideon+get": one every other tick, beside the RideOn.
             if self._keepalive_mode == "get" or (self._keepalive_mode == "rideon+get" and ticks % 2 == 0):
                 step = ticks if self._keepalive_mode == "get" else ticks // 2
@@ -190,7 +204,14 @@ class ZwiftClickClient:
     async def connect(self) -> None:
         started = time.monotonic()
         logger.info("connecting to %s (%s)", self._device.name, self._device.address)
-        self._client = BleakClient(self._device, disconnected_callback=self._on_disconnected)
+        # Only the Windows backend reads the winrt options.
+        winrt = {"use_cached_services": True} if self._use_cached_services else {}
+        self._client = BleakClient(
+            self._device,
+            disconnected_callback=self._on_disconnected,
+            timeout=constants.CONNECT_TIMEOUT_SECONDS,
+            winrt=winrt,
+        )
         await self._client.connect()
         self._connected_at = time.monotonic()
         try:
@@ -221,6 +242,12 @@ class ZwiftClickClient:
         for payload in constants.ACTIVATION_WRITES:
             await self._client.write_gatt_char(constants.CHAR_SYNC_RX_WRITE, payload, response=False)
             await asyncio.sleep(0.3)
+
+        if self._diagnostic_writes:
+            for payload in constants.DIAGNOSTIC_WRITES:
+                logger.info("diagnostic write: %s", payload.hex())
+                await self._client.write_gatt_char(constants.CHAR_SYNC_RX_WRITE, payload, response=False)
+                await asyncio.sleep(0.3)
 
         self._keepalive_task = asyncio.create_task(self._keepalive_loop())
         logger.info("Zwift Click connected and activated (keepalive: %s)", self._keepalive_mode)

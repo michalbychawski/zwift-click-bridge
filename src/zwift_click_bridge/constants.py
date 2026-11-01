@@ -33,16 +33,22 @@ KEEPALIVE_GETS = [
     bytes([0x00, 0x08, 0x00]),  # device info (answer: 3c 08 00 12 ... "Zwift Click2" ...)
     bytes([0x00, 0x08, 0x10]),  # object 0x10 (answer: 3c 08 10)
 ]
-# Experiment after GET requests failed too (log from 2026-11-01): sent beside the RideOn on
-# SYNC_RX, to see whether either resets the idle timer. fake_release is a CONTROLLER_NOTIFICATION
-# in the all-released state, written to the pod; a fake press is left out on purpose, it could
-# come back as a real shift. game_state is an empty GAME_STATE_NOTIFICATION. RESET (0x18) and
-# POWER_OFF (0x0f) stay out too, both end the connection.
-KEEPALIVE_PROBES = {
-    "fake_release": bytes([0x23, 0x08, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F]),
-    "game_state": bytes([0x43]),
-}
-KEEPALIVE_MODES = ("rideon", "rideon+get", "get", *KEEPALIVE_PROBES, "probe")
+KEEPALIVE_MODES = ("rideon", "rideon+get", "get")
+
+# Both GETs and writing other messages failed to reset the idle timer (2026-11-01). A released
+# CONTROLLER_NOTIFICATION (0x23) and a GAME_STATE_NOTIFICATION (0x43) were each answered with
+# 3e 08 <opcode> 10 05: STATUS_RESPONSE, NOT_SUPPORTED.
+
+# Sent once after activation, only to log what comes back: the pairing page (BikeControl's
+# PAGE_DEVICE_PAIRING) and log level 5 (trace), hoping the Click says why it sleeps.
+DIAGNOSTIC_WRITES = [
+    bytes([0x00, 0x08, 0x82, 0xE0, 0x03]),
+    bytes([0x41, 0x08, 0x05]),
+]
+
+# A connection attempt that works takes 0.2-6 s. One that hangs does so reading services, and
+# the Click may stop advertising during a long wait, so give up early and catch the next packet.
+CONNECT_TIMEOUT_SECONDS = 10.0
 
 BUTTON_OPCODE = 0x23  # payload[0] for button-state notifications on CHAR_ASYNC_NOTIFY
 

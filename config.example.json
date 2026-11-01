@@ -4,6 +4,7 @@
   "idle_disconnect_seconds": 600,
   "post_idle_cooldown_seconds": 90,
   "keepalive_mode": "rideon",
+  "diagnostic_writes": true,
   "buttons": {
     "0x1": {"name": "left", "key": null},
     "0x2": {"name": "up", "key": null},

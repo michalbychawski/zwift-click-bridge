@@ -38,6 +38,7 @@ DEFAULT_CONFIG = {
     "idle_disconnect_seconds": DEFAULT_IDLE_DISCONNECT_SECONDS,
     "post_idle_cooldown_seconds": DEFAULT_POST_IDLE_COOLDOWN_SECONDS,
     "keepalive_mode": DEFAULT_KEEPALIVE_MODE,
+    "diagnostic_writes": True,
     "buttons": {
         hex(bit): {"name": name, "key": _DEFAULT_KEYS.get(bit)}
         for bit, name in constants.BUTTON_BITS.items()
@@ -58,6 +59,7 @@ class KeyMap:
     idle_disconnect_seconds: float
     post_idle_cooldown_seconds: float
     keepalive_mode: str
+    diagnostic_writes: bool
     buttons: dict[int, ButtonMapping]
     path: Path = DEFAULT_CONFIG_PATH
 
@@ -82,6 +84,7 @@ class KeyMap:
             idle_disconnect_seconds=raw.get("idle_disconnect_seconds", DEFAULT_IDLE_DISCONNECT_SECONDS),
             post_idle_cooldown_seconds=raw.get("post_idle_cooldown_seconds", DEFAULT_POST_IDLE_COOLDOWN_SECONDS),
             keepalive_mode=mode if mode in constants.KEEPALIVE_MODES else DEFAULT_KEEPALIVE_MODE,
+            diagnostic_writes=bool(raw.get("diagnostic_writes", True)),
             buttons=buttons,
             path=path,
         )
@@ -93,6 +96,7 @@ class KeyMap:
             "idle_disconnect_seconds": self.idle_disconnect_seconds,
             "post_idle_cooldown_seconds": self.post_idle_cooldown_seconds,
             "keepalive_mode": self.keepalive_mode,
+            "diagnostic_writes": self.diagnostic_writes,
             "buttons": {
                 hex(bit): {"name": mapping.name, "key": mapping.key}
                 for bit, mapping in self.buttons.items()
