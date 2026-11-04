@@ -174,13 +174,13 @@ game-state message written to the pod were both refused (`NOT_SUPPORTED`). So
 the pod still sleeps about a minute after the last press if left connected; a
 press wakes it and the bridge reconnects in a few seconds.
 
-`idle_reconnect_seconds` (default `45`, `0` = off) reconnects after that long
-without a press, before the pod sleeps, for up to `idle_disconnect_seconds` after
-the last real press. Each reconnect leaves a gap of a few seconds with no buttons.
-It connects straight back to the known device instead of waiting for an
-advertisement, because the first test saw no advertisement after it. After any
-disconnect the log notes when the pod is seen again, or "no advertisement for
-Ns" at 5, 15, 30, 60, 120 and 300 s if it isn't.
+Reconnecting from the bridge before the sleep doesn't help either (tried in
+0.2.7 and 0.2.8, since removed): the pod goes silent about 59 s after the last
+press however many times it was reconnected in between, and Windows drops the
+link about 8 s later. After any disconnect the log notes when the pod is seen
+again, or "no advertisement for Ns" at 5, 15, 30, 60, 120 and 300 s if it isn't.
+Services are always read fresh on Windows: connects with cached services hung
+after the pod slept.
 
 `diagnostic_writes` (default `false`) sends two one-off messages after activation,
 a pairing-page request and log level 5, and logs the replies. They didn't keep

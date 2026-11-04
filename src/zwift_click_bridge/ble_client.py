@@ -85,13 +85,11 @@ class ZwiftClickClient:
         device: BLEDevice,
         on_button: ButtonHandler,
         keepalive_mode: str = "rideon",
-        use_cached_services: bool = False,
         diagnostic_writes: bool = False,
     ):
         self._device = device
         self._on_button = on_button
         self._keepalive_mode = keepalive_mode
-        self._use_cached_services = use_cached_services
         self._diagnostic_writes = diagnostic_writes
         self._recent_frames: deque[str] = deque(maxlen=12)
         self._reply_types: Counter[int] = Counter()
@@ -209,13 +207,14 @@ class ZwiftClickClient:
     async def connect(self) -> None:
         started = time.monotonic()
         logger.info("connecting to %s (%s)", self._device.name, self._device.address)
-        # Only the Windows backend reads the winrt options.
-        winrt = {"use_cached_services": True} if self._use_cached_services else {}
         self._client = BleakClient(
             self._device,
             disconnected_callback=self._on_disconnected,
             timeout=constants.CONNECT_TIMEOUT_SECONDS,
-            winrt=winrt,
+            # Every connect that hung reading services after the Click slept used Windows'
+            # cached services (its default); the retries that read them fresh took 1.5 s.
+            # Only the Windows backend reads this.
+            winrt={"use_cached_services": False},
         )
         await self._client.connect()
         self._connected_at = time.monotonic()

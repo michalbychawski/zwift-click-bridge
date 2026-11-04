@@ -42,8 +42,6 @@ class _Session:
     last_activity: float = field(default_factory=time.monotonic)
     cooldown_until: float | None = None
     disconnect_requested: bool = False
-    use_cached_services: bool = True  # dropped for good once an attempt with them fails
-    last_press: float = 0.0
     last_seen: float | None = None  # last matching advertisement
     disconnected_at: float | None = None
     silence_logged: int = 0  # how many of SILENCE_LOG_AFTER have been logged since the disconnect
@@ -155,8 +153,6 @@ class BridgeApp:
             is_pressed = (bitmask & bit) == 0
             if is_pressed != was_pressed:
                 self.button_event(session.address, mapping.name, is_pressed)
-                if is_pressed:
-                    session.last_press = time.monotonic()
                 if is_pressed and mapping.key:
                     self.injector.tap(mapping.key)
                     logger.info("%s: %s -> %s", session.name, mapping.name, mapping.key)
@@ -167,7 +163,6 @@ class BridgeApp:
             device,
             lambda bitmask: self._on_button(session, bitmask),
             self.keymap.keepalive_mode,
-            session.use_cached_services,
             self.keymap.diagnostic_writes,
         )
         started = time.monotonic()
@@ -176,7 +171,6 @@ class BridgeApp:
                 await client.connect()
         except Exception:
             logger.exception("%s: failed to connect after %.1fs", session.name, time.monotonic() - started)
-            session.use_cached_services = False
             try:  # a failure after the link came up (e.g. subscribing) would otherwise leave it open
                 await client.disconnect()
             except Exception:  # noqa: BLE001 - already failing, the next advertisement retries
@@ -187,9 +181,7 @@ class BridgeApp:
         self.device_status_changed(session.address, session.name, STATUS_CONNECTED)
         session.last_bitmask = None
         session.last_activity = time.monotonic()
-        session.last_press = session.last_press or session.last_activity
         session.disconnect_requested = False
-        refresh = False
         try:
             while client.is_connected and not self._stop_event.is_set() and self._listening:
                 if session.disconnect_requested:
@@ -201,21 +193,7 @@ class BridgeApp:
                     session.cooldown_until = time.monotonic() + self.keymap.post_idle_cooldown_seconds
                     break
 
-                idle_for = time.monotonic() - session.last_activity
-                # The Click sleeps about a minute after a press, but one dropped before that
-                # comes straight back. Reconnecting first keeps it awake through a quiet stretch,
-                # until idle_disconnect_seconds without a press lets it sleep for real.
-                refresh_after = self.keymap.idle_reconnect_seconds
-                if (
-                    refresh_after
-                    and idle_for >= refresh_after
-                    and time.monotonic() - session.last_press < self.keymap.idle_disconnect_seconds
-                ):
-                    logger.info("%s: quiet for %.0fs, reconnecting before it sleeps", session.name, idle_for)
-                    refresh = True
-                    break
-
-                if idle_for >= self.keymap.idle_disconnect_seconds:
+                if time.monotonic() - session.last_activity >= self.keymap.idle_disconnect_seconds:
                     logger.info(
                         "%s: no button activity for %ss, disconnecting so it can sleep",
                         session.name,
@@ -238,14 +216,6 @@ class BridgeApp:
             session.disconnected_at = time.monotonic()
             session.silence_logged = 0
             self.device_status_changed(session.address, session.name, STATUS_DISCONNECTED)
-
-        if refresh:
-            # The v0.2.7 log had no advertisement after this disconnect, so connect straight
-            # to the known device instead of waiting for one (the scanner still covers a failure).
-            await asyncio.sleep(1.0)
-            if self._listening and not self._stop_event.is_set():
-                logger.info("%s: reconnecting directly, without waiting for an advertisement", session.name)
-                session.task = asyncio.create_task(self._run_session(device, session))
 
     async def _log_silence(self) -> None:
         while not self._stop_event.is_set():
