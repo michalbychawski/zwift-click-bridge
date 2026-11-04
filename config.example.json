@@ -2,9 +2,10 @@
   "controller_side": "right",
   "reconnect_delay_seconds": 3,
   "idle_disconnect_seconds": 600,
+  "idle_reconnect_seconds": 45,
   "post_idle_cooldown_seconds": 90,
   "keepalive_mode": "rideon",
-  "diagnostic_writes": true,
+  "diagnostic_writes": false,
   "buttons": {
     "0x1": {"name": "left", "key": null},
     "0x2": {"name": "up", "key": null},

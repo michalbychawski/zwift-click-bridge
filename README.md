@@ -171,12 +171,16 @@ so `RideOn` alone doesn't reset the Click's own inactivity timer. The log's
 no presses. Neither `"rideon"` nor `"rideon+get"` did, and `"rideon+get"` was
 reported to stop the buttons after a click. A released-button frame and a
 game-state message written to the pod were both refused (`NOT_SUPPORTED`). So
-the pod still sleeps about a minute after the last press; a press wakes it and
-the bridge reconnects in a few seconds.
+the pod still sleeps about a minute after the last press if left connected; a
+press wakes it and the bridge reconnects in a few seconds.
 
-`diagnostic_writes` (default `true`) sends two one-off messages after activation,
-a pairing-page request and log level 5, and logs the replies plus the last
-non-button frames before a drop. Set it to `false` if buttons misbehave.
+`idle_reconnect_seconds` (default `45`, `0` = off) reconnects after that long
+without a press, before the pod sleeps, for up to `idle_disconnect_seconds` after
+the last real press. Each reconnect leaves a gap of a few seconds with no buttons.
+
+`diagnostic_writes` (default `false`) sends two one-off messages after activation,
+a pairing-page request and log level 5, and logs the replies. They didn't keep
+the pod awake either. The last non-button frames before a drop are logged either way.
 
 ## Platform notes
 

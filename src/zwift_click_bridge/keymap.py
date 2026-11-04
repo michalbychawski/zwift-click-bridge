@@ -20,6 +20,9 @@ _DEFAULT_KEYS = {
 # than the keepalive holding the connection open indefinitely.
 DEFAULT_IDLE_DISCONNECT_SECONDS = 600
 
+# Reconnect after this long without a press, before the Click's ~60 s sleep. 0 turns it off.
+DEFAULT_IDLE_RECONNECT_SECONDS = 45
+
 # After we disconnect it intentionally, the Click keeps advertising (and
 # reconnecting) for roughly a minute before it actually sleeps -- observed
 # empirically, not documented anywhere. Retrying sooner than this just
@@ -36,9 +39,10 @@ DEFAULT_CONFIG = {
     "controller_side": DEFAULT_CONTROLLER_SIDE,
     "reconnect_delay_seconds": 3,
     "idle_disconnect_seconds": DEFAULT_IDLE_DISCONNECT_SECONDS,
+    "idle_reconnect_seconds": DEFAULT_IDLE_RECONNECT_SECONDS,
     "post_idle_cooldown_seconds": DEFAULT_POST_IDLE_COOLDOWN_SECONDS,
     "keepalive_mode": DEFAULT_KEEPALIVE_MODE,
-    "diagnostic_writes": True,
+    "diagnostic_writes": False,
     "buttons": {
         hex(bit): {"name": name, "key": _DEFAULT_KEYS.get(bit)}
         for bit, name in constants.BUTTON_BITS.items()
@@ -57,6 +61,7 @@ class KeyMap:
     controller_side: str
     reconnect_delay_seconds: float
     idle_disconnect_seconds: float
+    idle_reconnect_seconds: float
     post_idle_cooldown_seconds: float
     keepalive_mode: str
     diagnostic_writes: bool
@@ -82,9 +87,10 @@ class KeyMap:
             controller_side=side if side in constants.DEVICE_TYPE_BY_SIDE else DEFAULT_CONTROLLER_SIDE,
             reconnect_delay_seconds=raw["reconnect_delay_seconds"],
             idle_disconnect_seconds=raw.get("idle_disconnect_seconds", DEFAULT_IDLE_DISCONNECT_SECONDS),
+            idle_reconnect_seconds=raw.get("idle_reconnect_seconds", DEFAULT_IDLE_RECONNECT_SECONDS),
             post_idle_cooldown_seconds=raw.get("post_idle_cooldown_seconds", DEFAULT_POST_IDLE_COOLDOWN_SECONDS),
             keepalive_mode=mode if mode in constants.KEEPALIVE_MODES else DEFAULT_KEEPALIVE_MODE,
-            diagnostic_writes=bool(raw.get("diagnostic_writes", True)),
+            diagnostic_writes=bool(raw.get("diagnostic_writes", False)),
             buttons=buttons,
             path=path,
         )
@@ -94,6 +100,7 @@ class KeyMap:
             "controller_side": self.controller_side,
             "reconnect_delay_seconds": self.reconnect_delay_seconds,
             "idle_disconnect_seconds": self.idle_disconnect_seconds,
+            "idle_reconnect_seconds": self.idle_reconnect_seconds,
             "post_idle_cooldown_seconds": self.post_idle_cooldown_seconds,
             "keepalive_mode": self.keepalive_mode,
             "diagnostic_writes": self.diagnostic_writes,

@@ -25,6 +25,7 @@ LOG_PATH = DEFAULT_CONFIG_PATH.parent / "bridge.log"
 STATUS_CONNECTING = "connecting"
 STATUS_CONNECTED = "connected"
 STATUS_DISCONNECTED = "disconnected"
+ALL_RELEASED = 0xFFFFFFFF
 
 
 @dataclass
@@ -39,6 +40,7 @@ class _Session:
     cooldown_until: float | None = None
     disconnect_requested: bool = False
     use_cached_services: bool = True  # dropped for good once an attempt with them fails
+    last_press: float = 0.0
 
 
 def _noop(*_args) -> None:
@@ -132,13 +134,15 @@ class BridgeApp:
         session.last_bitmask = bitmask
         session.last_activity = time.monotonic()
         if previous is None:
-            return  # first frame -- nothing to compare against yet
+            previous = ALL_RELEASED  # the first frame after a connect can be the press itself
 
         for bit, mapping in self.keymap.buttons.items():
             was_pressed = (previous & bit) == 0
             is_pressed = (bitmask & bit) == 0
             if is_pressed != was_pressed:
                 self.button_event(session.address, mapping.name, is_pressed)
+                if is_pressed:
+                    session.last_press = time.monotonic()
                 if is_pressed and mapping.key:
                     self.injector.tap(mapping.key)
                     logger.info("%s: %s -> %s", session.name, mapping.name, mapping.key)
@@ -169,6 +173,7 @@ class BridgeApp:
         self.device_status_changed(session.address, session.name, STATUS_CONNECTED)
         session.last_bitmask = None
         session.last_activity = time.monotonic()
+        session.last_press = session.last_press or session.last_activity
         session.disconnect_requested = False
         try:
             while client.is_connected and not self._stop_event.is_set() and self._listening:
@@ -182,6 +187,18 @@ class BridgeApp:
                     break
 
                 idle_for = time.monotonic() - session.last_activity
+                # The Click sleeps about a minute after a press, but one dropped before that
+                # comes straight back. Reconnecting first keeps it awake through a quiet stretch,
+                # until idle_disconnect_seconds without a press lets it sleep for real.
+                refresh_after = self.keymap.idle_reconnect_seconds
+                if (
+                    refresh_after
+                    and idle_for >= refresh_after
+                    and time.monotonic() - session.last_press < self.keymap.idle_disconnect_seconds
+                ):
+                    logger.info("%s: quiet for %.0fs, reconnecting before it sleeps", session.name, idle_for)
+                    break
+
                 if idle_for >= self.keymap.idle_disconnect_seconds:
                     logger.info(
                         "%s: no button activity for %ss, disconnecting so it can sleep",
