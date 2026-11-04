@@ -26,6 +26,9 @@ STATUS_CONNECTING = "connecting"
 STATUS_CONNECTED = "connected"
 STATUS_DISCONNECTED = "disconnected"
 ALL_RELEASED = 0xFFFFFFFF
+# Seconds after a disconnect at which "no advertisement yet" is logged, to tell a pod that
+# went quiet from one the scanner just isn't reporting.
+SILENCE_LOG_AFTER = (5, 15, 30, 60, 120, 300)
 
 
 @dataclass
@@ -41,6 +44,9 @@ class _Session:
     disconnect_requested: bool = False
     use_cached_services: bool = True  # dropped for good once an attempt with them fails
     last_press: float = 0.0
+    last_seen: float | None = None  # last matching advertisement
+    disconnected_at: float | None = None
+    silence_logged: int = 0  # how many of SILENCE_LOG_AFTER have been logged since the disconnect
 
 
 def _noop(*_args) -> None:
@@ -118,6 +124,7 @@ class BridgeApp:
             session = _Session(address=address, name=f"{device.name or 'Zwift Click'} ({address[-5:]})")
             self._sessions[address] = session
             self.device_status_changed(address, session.name, STATUS_DISCONNECTED)
+        session.last_seen = time.monotonic()
 
         if not self._listening:
             return
@@ -126,7 +133,14 @@ class BridgeApp:
         if session.cooldown_until is not None and time.monotonic() < session.cooldown_until:
             return  # recently disconnected on purpose -- ignore its lingering advertisement
 
-        logger.info("%s: seen, connecting", session.name)
+        if session.disconnected_at is not None:
+            logger.info(
+                "%s: seen, connecting (%.1fs after the last disconnect)",
+                session.name,
+                time.monotonic() - session.disconnected_at,
+            )
+        else:
+            logger.info("%s: seen, connecting", session.name)
         session.task = asyncio.create_task(self._run_session(device, session))
 
     def _on_button(self, session: _Session, bitmask: int) -> None:
@@ -175,6 +189,7 @@ class BridgeApp:
         session.last_activity = time.monotonic()
         session.last_press = session.last_press or session.last_activity
         session.disconnect_requested = False
+        refresh = False
         try:
             while client.is_connected and not self._stop_event.is_set() and self._listening:
                 if session.disconnect_requested:
@@ -197,6 +212,7 @@ class BridgeApp:
                     and time.monotonic() - session.last_press < self.keymap.idle_disconnect_seconds
                 ):
                     logger.info("%s: quiet for %.0fs, reconnecting before it sleeps", session.name, idle_for)
+                    refresh = True
                     break
 
                 if idle_for >= self.keymap.idle_disconnect_seconds:
@@ -219,11 +235,40 @@ class BridgeApp:
         finally:
             session.disconnect_requested = False
             await client.disconnect()
+            session.disconnected_at = time.monotonic()
+            session.silence_logged = 0
             self.device_status_changed(session.address, session.name, STATUS_DISCONNECTED)
+
+        if refresh:
+            # The v0.2.7 log had no advertisement after this disconnect, so connect straight
+            # to the known device instead of waiting for one (the scanner still covers a failure).
+            await asyncio.sleep(1.0)
+            if self._listening and not self._stop_event.is_set():
+                logger.info("%s: reconnecting directly, without waiting for an advertisement", session.name)
+                session.task = asyncio.create_task(self._run_session(device, session))
+
+    async def _log_silence(self) -> None:
+        while not self._stop_event.is_set():
+            await asyncio.sleep(1.0)
+            now = time.monotonic()
+            for session in self._sessions.values():
+                if session.disconnected_at is None or (session.task is not None and not session.task.done()):
+                    continue
+                if session.last_seen is not None and session.last_seen > session.disconnected_at:
+                    continue
+                if session.silence_logged >= len(SILENCE_LOG_AFTER):
+                    continue
+                if now - session.disconnected_at >= SILENCE_LOG_AFTER[session.silence_logged]:
+                    session.silence_logged += 1
+                    logger.info(
+                        "%s: no advertisement for %.0fs since the disconnect", session.name, now - session.disconnected_at
+                    )
 
     async def run(self) -> None:
         await self._scanner.start()
+        silence_task = asyncio.create_task(self._log_silence())
         await self._stop_event.wait()
+        silence_task.cancel()
         await self._scanner.stop()
         for session in list(self._sessions.values()):
             if session.task is not None:

@@ -177,6 +177,10 @@ press wakes it and the bridge reconnects in a few seconds.
 `idle_reconnect_seconds` (default `45`, `0` = off) reconnects after that long
 without a press, before the pod sleeps, for up to `idle_disconnect_seconds` after
 the last real press. Each reconnect leaves a gap of a few seconds with no buttons.
+It connects straight back to the known device instead of waiting for an
+advertisement, because the first test saw no advertisement after it. After any
+disconnect the log notes when the pod is seen again, or "no advertisement for
+Ns" at 5, 15, 30, 60, 120 and 300 s if it isn't.
 
 `diagnostic_writes` (default `false`) sends two one-off messages after activation,
 a pairing-page request and log level 5, and logs the replies. They didn't keep

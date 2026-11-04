@@ -104,6 +104,7 @@ class ZwiftClickClient:
         self._notifications = 0
         self._other_notifications = 0
         self._last_notify_at: float | None = None
+        self._closing = False  # set when the bridge itself ends the connection
 
     def _reply_summary(self) -> str:
         return "{" + ", ".join(f"0x{op:02x}: {n}" for op, n in sorted(self._reply_types.items())) + "}"
@@ -147,9 +148,12 @@ class ZwiftClickClient:
     def _on_disconnected(self, _client: BleakClient) -> None:
         # May run off the asyncio thread on some backends, so plain monotonic time.
         connected_for = time.monotonic() - self._connected_at if self._connected_at is not None else 0.0
-        logger.warning(
-            "Zwift Click disconnected after %.0fs (%d keepalives sent, %d replies, last reply %s; "
+        level = logging.INFO if self._closing else logging.WARNING
+        logger.log(
+            level,
+            "Zwift Click disconnected %safter %.0fs (%d keepalives sent, %d replies, last reply %s; "
             "%d notifications, last %s)",
+            "by the bridge " if self._closing else "",
             connected_for,
             self._keepalives_sent,
             self._sync_replies,
@@ -158,7 +162,8 @@ class ZwiftClickClient:
             self._ago(self._last_notify_at),
         )
         if self._recent_frames:
-            logger.warning("last non-button frames before the drop: %s", ", ".join(self._recent_frames))
+            logger.log(
+                level,"last non-button frames before the drop: %s", ", ".join(self._recent_frames))
 
     async def _keepalive_loop(self) -> None:
         assert self._client is not None
@@ -256,6 +261,7 @@ class ZwiftClickClient:
         if self._keepalive_task is not None:
             self._keepalive_task.cancel()
         if self._client is not None:
+            self._closing = self._client.is_connected
             await self._client.disconnect()
 
     @property
