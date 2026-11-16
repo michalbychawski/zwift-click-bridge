@@ -11,6 +11,7 @@ from .keymap import ButtonMapping
 _STATUS_STYLE = {
     "disconnected": ("#999999", "Disconnected"),
     "connecting": ("#e0b000", "Connecting..."),
+    "waiting": ("#e0b000", "Asleep, press a button to wake it"),
     "connected": ("#2ecc71", "Connected"),
 }
 
@@ -255,7 +256,7 @@ class MainWindow:
         color, text = _STATUS_STYLE.get(status, ("#999999", status))
         self._dot.itemconfigure(self._dot_item, fill=color)
         self._status_label.configure(text=text)
-        self._disconnect_button.configure(state="normal" if status == "connected" else "disabled")
+        self._disconnect_button.configure(state="normal" if status in ("connected", "waiting") else "disabled")
 
     def _show_default_hint(self) -> None:
         self._hint_label.configure(text="Click a button to remap it, right-click to unmap.")

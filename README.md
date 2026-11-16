@@ -18,7 +18,10 @@ of that: it skips the full ECDH handshake Zwift Play/Ride use, and instead:
    failed keepalive write is logged and retried on the next tick rather than
    stopping the keepalive. Note that a right pod was seen to answer every
    `RideOn` and still drop about 60 s after the last button press.
-3. Reads button state from unencrypted notifications (opcode `0x23`): a
+3. Keeps the pod awake with the wake sequence BikeControl uses (`keep_awake`,
+   see below), renewed every 5 minutes, and restarts the pod when the bridge
+   disconnects so it can sleep.
+4. Reads button state from unencrypted notifications (opcode `0x23`): a
    bitmask where bit `0x1000` is shift-up and bit `0x100` is shift-down, with
    `0` meaning pressed.
 
@@ -113,7 +116,9 @@ A config file is created on first run at:
   "reconnect_delay_seconds": 3,
   "idle_disconnect_seconds": 600,
   "post_idle_cooldown_seconds": 90,
+  "standing_reconnect_seconds": 1800,
   "keepalive_mode": "rideon",
+  "keep_awake": true,
   "buttons": {
     "0x1": {"name": "left", "key": null},
     "0x2": {"name": "up", "key": null},
@@ -160,6 +165,19 @@ disconnect before it actually sleeps; without this cooldown the bridge
 would immediately reconnect to that lingering advertisement and the
 controller would never actually get to sleep.
 
+`standing_reconnect_seconds` (default 1800 = 30 minutes) limits what the Click's
+own sleep costs you. It sleeps about a minute after the last press whatever the
+bridge sends, and only a press wakes it. When that drop happens, the bridge
+leaves a connection attempt open for this long after your last press (the window
+shows "Asleep, press a button to wake it"), so the press that wakes it connects
+without the scanner having to see it first. A connect that fails is also retried
+straight away while the pod was advertising in the last 30 s or the time above
+isn't up, instead of waiting for the next advertisement. `0` goes back to
+connecting only when it is seen advertising. Presses made while it is
+disconnected aren't replayed: going by the logs, the press that wakes it counts
+only if the button is still held when the connection is back (a few seconds). So
+after a pause **hold the paddle until the gear changes** instead of tapping.
+
 `keepalive_mode` (default `"rideon"`) is what the keepalive sends every
 3 seconds: `"rideon"` (a bare `RideOn` only, as before), `"rideon+get"` (the
 `RideOn` plus, every other tick, one of the two "get" requests activation sends,
@@ -179,8 +197,29 @@ Reconnecting from the bridge before the sleep doesn't help either (tried in
 press however many times it was reconnected in between, and Windows drops the
 link about 8 s later. After any disconnect the log notes when the pod is seen
 again, or "no advertisement for Ns" at 5, 15, 30, 60, 120 and 300 s if it isn't.
-Services are always read fresh on Windows: connects with cached services hung
-after the pod slept.
+The connects that time out reading services (10 s) are the ones started when the
+pod shows up by itself 43-53 s after a drop: it isn't reachable then, with
+Windows' cached services or without. 0.2.9 forced fresh reads for that; since
+0.2.10 the choice is left to Windows again and the attempt is simply repeated.
+
+`keep_awake` (default `true`) sends the sequence BikeControl uses to keep a right
+pod on without the Zwift app. Without it the pod sleeps about a minute after the
+last press, whatever is written to it (above). Each run keeps it on for about
+15 minutes (944 s) on the same connection, and the bridge renews it every 5
+minutes. The sequence was captured from BikeControl's Bluetooth traffic by
+[click2whoosh](https://github.com/NicolaM96/click2whoosh) (firmware 1.1.0): the
+notifications on characteristics `…0100` and `…0102` are re-enabled, then
+`…0102` ← `01`, `…0100` ← `3d b8 f3 96 00 00 00 00 00 01 00 00 00 b0 03 00 00 00`,
+`…0102` ← `03`. The replies are logged as `reply: wake 0102 01f000` and so on.
+**These characteristics belong to the pod's firmware-update mechanism.**
+[swift-click](https://github.com/benoitzelsmann/swift-click) warns that this can
+erase the secondary firmware slot (the spare slot an update is written to, not
+the firmware that runs) and that long-term effects are unknown. BikeControl sends
+it to every right pod it keeps awake. Set `false` to go back to the old
+behaviour. When the bridge disconnects on its own (idle, **Disconnect**, closing
+it normally) it writes `RESET` (`0x18`), so the pod sleeps about a minute later
+instead of staying on for the rest of the 15 minutes. The pod's firmware version
+is logged at every connect.
 
 `diagnostic_writes` (default `false`) sends two one-off messages after activation,
 a pairing-page request and log level 5, and logs the replies. They didn't keep

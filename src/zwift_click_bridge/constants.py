@@ -46,6 +46,24 @@ DIAGNOSTIC_WRITES = [
     bytes([0x41, 0x08, 0x05]),
 ]
 
+# Keeping the right pod awake. Nothing written to SYNC_RX resets its ~60 s sleep timer (above),
+# but this sequence keeps it on for ~944 s on the same connection. It's what BikeControl sends:
+# click2whoosh (github.com/NicolaM96/click2whoosh, docs/HOW-IT-WORKS.md) captured it from
+# BikeControl's Bluetooth traffic, firmware 1.1.0. Notifications on both characteristics are
+# re-enabled, then CHAR_WAKE_CONTROL <- 01 (reply 01 f0 00), CHAR_WAKE <- WAKE_MESSAGE (reply 00),
+# CHAR_WAKE_CONTROL <- 03 (reply 12 00 ...). These characteristics belong to the firmware-update
+# mechanism: swift-click warns this "can erase the secondary firmware slot" (the spare slot an
+# update is written to, not the running firmware). `keep_awake` in the config turns it off.
+CHAR_WAKE = "00000100-19ca-4651-86e5-fa29dcdd09d1"
+CHAR_WAKE_CONTROL = "00000102-19ca-4651-86e5-fa29dcdd09d1"
+WAKE_MESSAGE = bytes.fromhex("3d b8 f3 96 00 00 00 00 00 01 00 00 00 b0 03 00 00 00")
+WAKE_RENEW_SECONDS = 300.0  # click2whoosh's interval, well inside the ~944 s each run grants
+# Restarts the pod, which cancels the rest of the ~944 s: it then sleeps about a minute later.
+# Sent when the bridge disconnects on its own, so the pod doesn't stay on for 15 minutes.
+# (POWER_OFF, 0x0f, is answered NOT_SUPPORTED.)
+OPCODE_RESET = 0x18
+CHAR_FIRMWARE_REVISION = "00002a26-0000-1000-8000-00805f9b34fb"
+
 # A connection attempt that works takes 0.2-6 s. One that hangs does so reading services, and
 # the Click may stop advertising during a long wait, so give up early and catch the next packet.
 CONNECT_TIMEOUT_SECONDS = 10.0

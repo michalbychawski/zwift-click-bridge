@@ -26,19 +26,29 @@ DEFAULT_IDLE_DISCONNECT_SECONDS = 600
 # catches that lingering advertisement and never lets it fully sleep.
 DEFAULT_POST_IDLE_COOLDOWN_SECONDS = 90
 
+# After the Click drops (it sleeps about a minute after the last press), a connection
+# attempt stays open this long after that press, so the press that wakes it connects
+# without waiting for the scanner to see it first. 0 = wait for its advertisement.
+DEFAULT_STANDING_RECONNECT_SECONDS = 1800
+
 # Only one Click v2 pod is connected -- see constants.DEVICE_TYPE_BY_SIDE.
 DEFAULT_CONTROLLER_SIDE = "right"
 
 # What the keepalive sends -- see constants.KEEPALIVE_GETS.
 DEFAULT_KEEPALIVE_MODE = "rideon"
 
+# Send the wake sequence that keeps the pod on -- see constants.CHAR_WAKE.
+DEFAULT_KEEP_AWAKE = True
+
 DEFAULT_CONFIG = {
     "controller_side": DEFAULT_CONTROLLER_SIDE,
     "reconnect_delay_seconds": 3,
     "idle_disconnect_seconds": DEFAULT_IDLE_DISCONNECT_SECONDS,
     "post_idle_cooldown_seconds": DEFAULT_POST_IDLE_COOLDOWN_SECONDS,
+    "standing_reconnect_seconds": DEFAULT_STANDING_RECONNECT_SECONDS,
     "keepalive_mode": DEFAULT_KEEPALIVE_MODE,
     "diagnostic_writes": False,
+    "keep_awake": DEFAULT_KEEP_AWAKE,
     "buttons": {
         hex(bit): {"name": name, "key": _DEFAULT_KEYS.get(bit)}
         for bit, name in constants.BUTTON_BITS.items()
@@ -58,8 +68,10 @@ class KeyMap:
     reconnect_delay_seconds: float
     idle_disconnect_seconds: float
     post_idle_cooldown_seconds: float
+    standing_reconnect_seconds: float
     keepalive_mode: str
     diagnostic_writes: bool
+    keep_awake: bool
     buttons: dict[int, ButtonMapping]
     path: Path = DEFAULT_CONFIG_PATH
 
@@ -83,8 +95,10 @@ class KeyMap:
             reconnect_delay_seconds=raw["reconnect_delay_seconds"],
             idle_disconnect_seconds=raw.get("idle_disconnect_seconds", DEFAULT_IDLE_DISCONNECT_SECONDS),
             post_idle_cooldown_seconds=raw.get("post_idle_cooldown_seconds", DEFAULT_POST_IDLE_COOLDOWN_SECONDS),
+            standing_reconnect_seconds=raw.get("standing_reconnect_seconds", DEFAULT_STANDING_RECONNECT_SECONDS),
             keepalive_mode=mode if mode in constants.KEEPALIVE_MODES else DEFAULT_KEEPALIVE_MODE,
             diagnostic_writes=bool(raw.get("diagnostic_writes", False)),
+            keep_awake=bool(raw.get("keep_awake", DEFAULT_KEEP_AWAKE)),
             buttons=buttons,
             path=path,
         )
@@ -95,8 +109,10 @@ class KeyMap:
             "reconnect_delay_seconds": self.reconnect_delay_seconds,
             "idle_disconnect_seconds": self.idle_disconnect_seconds,
             "post_idle_cooldown_seconds": self.post_idle_cooldown_seconds,
+            "standing_reconnect_seconds": self.standing_reconnect_seconds,
             "keepalive_mode": self.keepalive_mode,
             "diagnostic_writes": self.diagnostic_writes,
+            "keep_awake": self.keep_awake,
             "buttons": {
                 hex(bit): {"name": mapping.name, "key": mapping.key}
                 for bit, mapping in self.buttons.items()

@@ -86,11 +86,18 @@ class ZwiftClickClient:
         on_button: ButtonHandler,
         keepalive_mode: str = "rideon",
         diagnostic_writes: bool = False,
+        keep_awake: bool = True,
+        quiet: bool = False,  # a repeated attempt: don't log each one
     ):
         self._device = device
+        self._quiet = quiet
         self._on_button = on_button
         self._keepalive_mode = keepalive_mode
         self._diagnostic_writes = diagnostic_writes
+        self._keep_awake = keep_awake
+        self._wake_task: asyncio.Task | None = None
+        self._wakes_sent = 0  # completed wake sequences on this connection
+        self._wake_replies = 0
         self._recent_frames: deque[str] = deque(maxlen=12)
         self._reply_types: Counter[int] = Counter()
         self._client: BleakClient | None = None
@@ -149,11 +156,12 @@ class ZwiftClickClient:
         level = logging.INFO if self._closing else logging.WARNING
         logger.log(
             level,
-            "Zwift Click disconnected %safter %.0fs (%d keepalives sent, %d replies, last reply %s; "
-            "%d notifications, last %s)",
+            "Zwift Click disconnected %safter %.0fs (%d keepalives sent, %d wake sequences, %d replies, "
+            "last reply %s; %d notifications, last %s)",
             "by the bridge " if self._closing else "",
             connected_for,
             self._keepalives_sent,
+            self._wakes_sent,
             self._sync_replies,
             self._ago(self._last_reply_at),
             self._notifications,
@@ -169,6 +177,8 @@ class ZwiftClickClient:
         ticks = 0
         while True:
             await asyncio.sleep(constants.KEEPALIVE_INTERVAL_SECONDS)
+            if not self._client.is_connected:
+                return  # dropped; the drop is already logged and a write would only add a traceback
             ticks += 1
             # A failed write used to end this task silently (nothing awaits it), so the
             # keepalive stopped and the Click went idle and dropped about a minute later.
@@ -204,17 +214,88 @@ class ZwiftClickClient:
                     self._ago(self._last_notify_at),
                 )
 
+    def _on_wake_reply(self, char, data: bytearray) -> None:
+        self._wake_replies += 1
+        text = f"wake {str(char.uuid)[4:8]} {bytes(data).hex()}"
+        self._recent_frames.append(text)
+        logger.log(logging.INFO if self._wake_replies <= 12 else logging.DEBUG, "reply: %s", text)
+
+    async def _write(self, uuid: str, payload: bytes) -> None:
+        # The SYNC_RX writes have always gone without response. Use the same where the
+        # characteristic allows it, so a backend doesn't refuse it (WinRT checks the property).
+        assert self._client is not None
+        char = self._client.services.get_characteristic(uuid)
+        response = char is not None and "write-without-response" not in char.properties
+        await self._client.write_gatt_char(uuid, payload, response=response)
+
+    async def _subscribe_wake(self) -> bool:
+        assert self._client is not None
+        for uuid in (constants.CHAR_WAKE, constants.CHAR_WAKE_CONTROL):
+            if self._client.services.get_characteristic(uuid) is None:
+                logger.warning("keep-awake: characteristic %s not found; the pod will sleep as before", uuid)
+                return False
+        for uuid in (constants.CHAR_WAKE, constants.CHAR_WAKE_CONTROL):
+            await self._client.start_notify(uuid, self._on_wake_reply)
+        return True
+
+    async def _wake_sequence(self) -> None:
+        assert self._client is not None
+        if self._wakes_sent:
+            # BikeControl re-enables the notifications before every run. bleak won't start them
+            # twice, so stop and start them again.
+            for uuid in (constants.CHAR_WAKE, constants.CHAR_WAKE_CONTROL):
+                await self._client.stop_notify(uuid)
+                await self._client.start_notify(uuid, self._on_wake_reply)
+            await asyncio.sleep(0.1)
+        await self._write(constants.CHAR_WAKE_CONTROL, b"\x01")
+        await asyncio.sleep(0.06)
+        await self._write(constants.CHAR_WAKE, constants.WAKE_MESSAGE)
+        await asyncio.sleep(0.06)
+        await self._write(constants.CHAR_WAKE_CONTROL, b"\x03")
+        self._wakes_sent += 1
+
+    async def _keep_awake_loop(self) -> None:
+        assert self._client is not None
+        while self._client.is_connected:
+            try:
+                await self._wake_sequence()
+                logger.info(
+                    "keep-awake: wake sequence #%d sent, next in %.0fs", self._wakes_sent, constants.WAKE_RENEW_SECONDS
+                )
+                delay = constants.WAKE_RENEW_SECONDS
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if not self._client.is_connected:
+                    return  # dropped mid-sequence; the drop is logged already
+                logger.exception("keep-awake: wake sequence failed, retrying in 20s")
+                delay = 20.0  # still well before the ~60 s sleep
+            await asyncio.sleep(delay)
+
+    async def _log_firmware(self) -> None:
+        assert self._client is not None
+        try:
+            raw = await self._client.read_gatt_char(constants.CHAR_FIRMWARE_REVISION)
+            logger.info("firmware %s", bytes(raw).decode("utf-8", "replace").strip())
+        except Exception as exc:  # noqa: BLE001 - only a log line
+            logger.info("firmware revision not readable: %r", exc)
+
     async def connect(self) -> None:
         started = time.monotonic()
-        logger.info("connecting to %s (%s)", self._device.name, self._device.address)
+        logger.log(
+            logging.DEBUG if self._quiet else logging.INFO,
+            "connecting to %s (%s)",
+            self._device.name,
+            self._device.address,
+        )
+        # winrt use_cached_services is left to Windows. 0.2.9 forced fresh reads, believing only
+        # connects with cached services hung. In the 0.2.8 ride log the connects that timed out
+        # reading services were the ones started 43-53 s after a drop, with the option on or
+        # unset alike, and every other connect worked in 3-4 s.
         self._client = BleakClient(
             self._device,
             disconnected_callback=self._on_disconnected,
             timeout=constants.CONNECT_TIMEOUT_SECONDS,
-            # Every connect that hung reading services after the Click slept used Windows'
-            # cached services (its default); the retries that read them fresh took 1.5 s.
-            # Only the Windows backend reads this.
-            winrt={"use_cached_services": False},
         )
         await self._client.connect()
         self._connected_at = time.monotonic()
@@ -232,6 +313,13 @@ class ZwiftClickClient:
             pass
 
         await self._client.start_notify(constants.CHAR_ASYNC_NOTIFY, self._on_notify)
+        await self._log_firmware()
+        keep_awake = False
+        if self._keep_awake:
+            try:
+                keep_awake = await self._subscribe_wake()
+            except Exception:
+                logger.exception("keep-awake: could not subscribe; the pod will sleep as before")
         try:
             await self._client.start_notify(constants.CHAR_SYNC_TX_INDICATE, self._on_sync_tx)
             logger.info("subscribed to button notifications and SYNC_TX indications")
@@ -254,13 +342,28 @@ class ZwiftClickClient:
                 await asyncio.sleep(0.3)
 
         self._keepalive_task = asyncio.create_task(self._keepalive_loop())
-        logger.info("Zwift Click connected and activated (keepalive: %s)", self._keepalive_mode)
+        if keep_awake:
+            self._wake_task = asyncio.create_task(self._keep_awake_loop())
+        logger.info(
+            "Zwift Click connected and activated (keepalive: %s, keep-awake: %s)",
+            self._keepalive_mode,
+            "on" if keep_awake else "off",
+        )
 
     async def disconnect(self) -> None:
-        if self._keepalive_task is not None:
-            self._keepalive_task.cancel()
+        for task in (self._keepalive_task, self._wake_task):
+            if task is not None:
+                task.cancel()
         if self._client is not None:
             self._closing = self._client.is_connected
+            if self._closing and self._wakes_sent:
+                # Each wake run keeps the pod on ~15 minutes. Restart it so it sleeps about a
+                # minute from now instead, like it would have without the wake sequence.
+                try:
+                    await self._write(constants.CHAR_SYNC_RX_WRITE, bytes([constants.OPCODE_RESET]))
+                    logger.info("keep-awake: sent RESET so the pod can sleep")
+                except Exception:  # noqa: BLE001 - it then sleeps when the last run runs out
+                    logger.warning("keep-awake: RESET failed; the pod may stay on up to ~15 minutes", exc_info=True)
             await self._client.disconnect()
 
     @property
