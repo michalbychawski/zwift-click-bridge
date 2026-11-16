@@ -15,6 +15,7 @@ from .protocol import decode_button_bitmask
 logger = logging.getLogger(__name__)
 
 ButtonHandler = Callable[[int], None]
+InfoHandler = Callable[[str, object], None]  # ("firmware", str) / ("battery", int) / ("keep_awake", "on"|"off"|"failed")
 DeviceSeenHandler = Callable[[BLEDevice], None]
 
 
@@ -84,16 +85,12 @@ class ZwiftClickClient:
         self,
         device: BLEDevice,
         on_button: ButtonHandler,
-        keepalive_mode: str = "rideon",
-        diagnostic_writes: bool = False,
         keep_awake: bool = True,
-        quiet: bool = False,  # a repeated attempt: don't log each one
+        on_info: InfoHandler | None = None,
     ):
         self._device = device
-        self._quiet = quiet
         self._on_button = on_button
-        self._keepalive_mode = keepalive_mode
-        self._diagnostic_writes = diagnostic_writes
+        self._on_info: InfoHandler = on_info or (lambda _what, _value: None)
         self._keep_awake = keep_awake
         self._wake_task: asyncio.Task | None = None
         self._wakes_sent = 0  # completed wake sequences on this connection
@@ -182,16 +179,10 @@ class ZwiftClickClient:
             ticks += 1
             # A failed write used to end this task silently (nothing awaits it), so the
             # keepalive stopped and the Click went idle and dropped about a minute later.
-            writes = []
-            if self._keepalive_mode in ("rideon", "rideon+get"):
-                writes.append(constants.KEEPALIVE_WRITE)
-            # "get": a request every tick; "rideon+get": one every other tick, beside the RideOn.
-            if self._keepalive_mode == "get" or (self._keepalive_mode == "rideon+get" and ticks % 2 == 0):
-                step = ticks if self._keepalive_mode == "get" else ticks // 2
-                writes.append(constants.KEEPALIVE_GETS[step % len(constants.KEEPALIVE_GETS)])
             try:
-                for payload in writes:
-                    await self._client.write_gatt_char(constants.CHAR_SYNC_RX_WRITE, payload, response=False)
+                await self._client.write_gatt_char(
+                    constants.CHAR_SYNC_RX_WRITE, constants.KEEPALIVE_WRITE, response=False
+                )
                 self._keepalives_sent += 1
                 if failures:
                     logger.info("keepalive writes work again after %d failure(s)", failures)
@@ -202,11 +193,10 @@ class ZwiftClickClient:
                 failures += 1
                 if failures == 1 or failures % 10 == 0:
                     logger.exception("keepalive write failed (%d in a row)", failures)
-            if ticks % 10 == 0:  # every 30 s
+            if ticks % 100 == 0:  # every 5 minutes
                 logger.info(
-                    "still connected: %d keepalives sent (%s), %d replies %s (last %s), %d notifications (last %s)",
+                    "still connected: %d keepalives sent, %d replies %s (last %s), %d notifications (last %s)",
                     self._keepalives_sent,
-                    self._keepalive_mode,
                     self._sync_replies,
                     self._reply_summary(),
                     self._ago(self._last_reply_at),
@@ -259,6 +249,8 @@ class ZwiftClickClient:
         while self._client.is_connected:
             try:
                 await self._wake_sequence()
+                self._on_info("keep_awake", "on")
+                await self._read_battery()
                 logger.info(
                     "keep-awake: wake sequence #%d sent, next in %.0fs", self._wakes_sent, constants.WAKE_RENEW_SECONDS
                 )
@@ -269,6 +261,7 @@ class ZwiftClickClient:
                 if not self._client.is_connected:
                     return  # dropped mid-sequence; the drop is logged already
                 logger.exception("keep-awake: wake sequence failed, retrying in 20s")
+                self._on_info("keep_awake", "failed")
                 delay = 20.0  # still well before the ~60 s sleep
             await asyncio.sleep(delay)
 
@@ -276,22 +269,36 @@ class ZwiftClickClient:
         assert self._client is not None
         try:
             raw = await self._client.read_gatt_char(constants.CHAR_FIRMWARE_REVISION)
-            logger.info("firmware %s", bytes(raw).decode("utf-8", "replace").strip())
         except Exception as exc:  # noqa: BLE001 - only a log line
             logger.info("firmware revision not readable: %r", exc)
+            return
+        version = bytes(raw).decode("utf-8", "replace").strip()
+        logger.info("firmware %s", version)
+        self._on_info("firmware", version)
+
+    def _on_battery(self, _char, data: bytearray) -> None:
+        if data:
+            self._on_info("battery", data[0])
+
+    async def _read_battery(self) -> None:
+        assert self._client is not None
+        try:
+            raw = await self._client.read_gatt_char(constants.CHAR_BATTERY_LEVEL)
+        except Exception as exc:  # noqa: BLE001 - nice to have
+            logger.debug("battery level not readable: %r", exc)
+            return
+        if raw:
+            logger.info("battery %d%%", raw[0])
+            self._on_info("battery", raw[0])
 
     async def connect(self) -> None:
         started = time.monotonic()
-        logger.log(
-            logging.DEBUG if self._quiet else logging.INFO,
+        logger.info(
             "connecting to %s (%s)",
             self._device.name,
             self._device.address,
         )
-        # winrt use_cached_services is left to Windows. 0.2.9 forced fresh reads, believing only
-        # connects with cached services hung. In the 0.2.8 ride log the connects that timed out
-        # reading services were the ones started 43-53 s after a drop, with the option on or
-        # unset alike, and every other connect worked in 3-4 s.
+        # use_cached_services is left to Windows: forcing fresh reads (0.2.9) didn't stop the hangs.
         self._client = BleakClient(
             self._device,
             disconnected_callback=self._on_disconnected,
@@ -335,20 +342,18 @@ class ZwiftClickClient:
             await self._client.write_gatt_char(constants.CHAR_SYNC_RX_WRITE, payload, response=False)
             await asyncio.sleep(0.3)
 
-        if self._diagnostic_writes:
-            for payload in constants.DIAGNOSTIC_WRITES:
-                logger.info("diagnostic write: %s", payload.hex())
-                await self._client.write_gatt_char(constants.CHAR_SYNC_RX_WRITE, payload, response=False)
-                await asyncio.sleep(0.3)
+        await self._read_battery()
+        try:
+            await self._client.start_notify(constants.CHAR_BATTERY_LEVEL, self._on_battery)
+        except Exception as exc:  # noqa: BLE001 - it's also read at every wake sequence
+            logger.debug("battery notifications not available: %r", exc)
 
         self._keepalive_task = asyncio.create_task(self._keepalive_loop())
         if keep_awake:
             self._wake_task = asyncio.create_task(self._keep_awake_loop())
-        logger.info(
-            "Zwift Click connected and activated (keepalive: %s, keep-awake: %s)",
-            self._keepalive_mode,
-            "on" if keep_awake else "off",
-        )
+        else:
+            self._on_info("keep_awake", "off")  # "on" comes from the loop once the pod has taken it
+        logger.info("Zwift Click connected and activated (keep-awake: %s)", "on" if keep_awake else "off")
 
     async def disconnect(self) -> None:
         for task in (self._keepalive_task, self._wake_task):

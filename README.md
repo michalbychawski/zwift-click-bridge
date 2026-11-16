@@ -14,10 +14,10 @@ of that: it skips the full ECDH handshake Zwift Play/Ride use, and instead:
 1. Connects over BLE, subscribes to button notifications and to the device's
    SYNC_TX indications (its replies to activation and keepalive writes), and
    writes a short 3-message activation sequence.
-2. Sends a keepalive write every 3 seconds (`keepalive_mode`, see below). A
-   failed keepalive write is logged and retried on the next tick rather than
-   stopping the keepalive. Note that a right pod was seen to answer every
-   `RideOn` and still drop about 60 s after the last button press.
+2. Sends a `RideOn` keepalive every 3 seconds. A failed write is logged and
+   retried on the next tick. This alone doesn't keep the pod awake: it sleeps
+   about a minute after the last press whatever is written to its command
+   channel.
 3. Keeps the pod awake with the wake sequence BikeControl uses (`keep_awake`,
    see below), renewed every 5 minutes, and restarts the pod when the bridge
    disconnects so it can sleep.
@@ -88,18 +88,21 @@ This opens a window that scans continuously for the **right** Click v2 pod
 left pod's connection, so connecting both made every press count twice).
 The window shows:
 
-- A status dot (gray = disconnected, yellow = connecting, green = connected).
-- A box per button that flashes briefly on every press -- handy for
-  confirming the controller and the bridge are both working.
+- Both Click v2 pods, drawn after the real ones. The pod in use is lit; each
+  of its buttons lights up in its own colour on every press, and its LED shows
+  the connection (gray = not connected, yellow = connecting, green = connected).
+- A key chip beside each button with the key it sends.
+- The pod's firmware, battery level and whether keep-awake is on.
+- The last press and how many presses this session.
 - A **Disconnect** button to deliberately drop the connection (e.g. to let
   it go to sleep). It reconnects automatically the next time you press one
   of its paddles.
 
-**Remapping at runtime:** click any button box, then press the key it should
-send (Esc cancels). Right-click a box to unmap it. Changes take effect
-immediately and are saved to the config file.
+**Remapping at runtime:** click a button on the drawing (or its key chip),
+then press the key it should send (Esc cancels). Right-click to unmap it.
+Changes take effect immediately and are saved to the config file.
 
-The **Stop Listening** / **Start Listening** button at the bottom pauses or
+The **Stop listening** / **Start listening** button at the top pauses or
 resumes scanning entirely, disconnecting everything while stopped. Closing
 the window quits the app.
 
@@ -113,11 +116,8 @@ A config file is created on first run at:
 ```json
 {
   "controller_side": "right",
-  "reconnect_delay_seconds": 3,
   "idle_disconnect_seconds": 600,
   "post_idle_cooldown_seconds": 90,
-  "standing_reconnect_seconds": 1800,
-  "keepalive_mode": "rideon",
   "keep_awake": true,
   "buttons": {
     "0x1": {"name": "left", "key": null},
@@ -153,7 +153,7 @@ directly; for special keys use `pynput.keyboard.Key` names, e.g.
 `idle_disconnect_seconds` (default 600 = 10 minutes) controls when the
 bridge voluntarily disconnects a controller after no button activity on it,
 letting the Click drop into its own battery-saving sleep instead of being
-held awake indefinitely by the keepalive. It reconnects automatically the
+held awake indefinitely by `keep_awake`. It reconnects automatically the
 next time you press that controller. Set it higher (or very large) if you'd
 rather it always stay connected. The same cooldown applies if you click a
 controller's **Disconnect** button yourself.
@@ -165,46 +165,11 @@ disconnect before it actually sleeps; without this cooldown the bridge
 would immediately reconnect to that lingering advertisement and the
 controller would never actually get to sleep.
 
-`standing_reconnect_seconds` (default 1800 = 30 minutes) limits what the Click's
-own sleep costs you. It sleeps about a minute after the last press whatever the
-bridge sends, and only a press wakes it. When that drop happens, the bridge
-leaves a connection attempt open for this long after your last press (the window
-shows "Asleep, press a button to wake it"), so the press that wakes it connects
-without the scanner having to see it first. A connect that fails is also retried
-straight away while the pod was advertising in the last 30 s or the time above
-isn't up, instead of waiting for the next advertisement. `0` goes back to
-connecting only when it is seen advertising. Presses made while it is
-disconnected aren't replayed: going by the logs, the press that wakes it counts
-only if the button is still held when the connection is back (a few seconds). So
-after a pause **hold the paddle until the gear changes** instead of tapping.
-
-`keepalive_mode` (default `"rideon"`) is what the keepalive sends every
-3 seconds: `"rideon"` (a bare `RideOn` only, as before), `"rideon+get"` (the
-`RideOn` plus, every other tick, one of the two "get" requests activation sends,
-`00 08 00` / `00 08 10`), or `"get"` (only those requests). This is an
-experiment: a log from a real right pod showed it answering every `RideOn`
-and still going silent and dropping about 60 s after the last button press,
-so `RideOn` alone doesn't reset the Click's own inactivity timer. The log's
-30-second status lines show which modes keep it connected past a minute of
-no presses. Neither `"rideon"` nor `"rideon+get"` did, and `"rideon+get"` was
-reported to stop the buttons after a click. A released-button frame and a
-game-state message written to the pod were both refused (`NOT_SUPPORTED`). So
-the pod still sleeps about a minute after the last press if left connected; a
-press wakes it and the bridge reconnects in a few seconds.
-
-Reconnecting from the bridge before the sleep doesn't help either (tried in
-0.2.7 and 0.2.8, since removed): the pod goes silent about 59 s after the last
-press however many times it was reconnected in between, and Windows drops the
-link about 8 s later. After any disconnect the log notes when the pod is seen
-again, or "no advertisement for Ns" at 5, 15, 30, 60, 120 and 300 s if it isn't.
-The connects that time out reading services (10 s) are the ones started when the
-pod shows up by itself 43-53 s after a drop: it isn't reachable then, with
-Windows' cached services or without. 0.2.9 forced fresh reads for that; since
-0.2.10 the choice is left to Windows again and the attempt is simply repeated.
-
 `keep_awake` (default `true`) sends the sequence BikeControl uses to keep a right
 pod on without the Zwift app. Without it the pod sleeps about a minute after the
-last press, whatever is written to it (above). Each run keeps it on for about
+last press, whatever is written to its command channel (`RideOn`, requests,
+released-button frames and the rest were all tried in 0.2.x), and a press then
+has to wake it and wait a few seconds for the reconnect. Each run keeps it on for about
 15 minutes (944 s) on the same connection, and the bridge renews it every 5
 minutes. The sequence was captured from BikeControl's Bluetooth traffic by
 [click2whoosh](https://github.com/NicolaM96/click2whoosh) (firmware 1.1.0): the
@@ -219,11 +184,8 @@ it to every right pod it keeps awake. Set `false` to go back to the old
 behaviour. When the bridge disconnects on its own (idle, **Disconnect**, closing
 it normally) it writes `RESET` (`0x18`), so the pod sleeps about a minute later
 instead of staying on for the rest of the 15 minutes. The pod's firmware version
-is logged at every connect.
-
-`diagnostic_writes` (default `false`) sends two one-off messages after activation,
-a pairing-page request and log level 5, and logs the replies. They didn't keep
-the pod awake either. The last non-button frames before a drop are logged either way.
+is logged at every connect. Tested on a right pod with firmware 1.2.0: a 58-minute
+ride with pauses of up to 4 minutes and no drops.
 
 ## Platform notes
 
@@ -246,12 +208,13 @@ for ~20 seconds and reconnected cleanly).
 
 ## Troubleshooting
 
-- The window has a **Log** panel at the bottom; **Copy log** puts the recent
+- The window has a log panel (**Show log**); **Copy log** puts the recent
   log (up to 3000 lines) on the clipboard for a bug report. The same log goes
   to `~/.config/zwift-click-bridge/bridge.log` (also on Windows, under your user
   folder; the `.exe` has no console). It records the app version and system,
-  each connect (time, MTU, characteristics), the Click's first replies, a
-  status line every 30 s while connected, any non-button messages from the
+  each connect (time, MTU, characteristics, firmware, battery), the Click's
+  first replies, each keep-awake renewal, a status line every 5 minutes while
+  connected, any non-button messages from the
   Click, failed keepalive writes, and every drop with how long it lasted and
   when the last reply and notification arrived.
 - `zwift-click-spike` prints every decoded button bitmask -- use it to
@@ -259,9 +222,9 @@ for ~20 seconds and reconnected cleanly).
 - `zwift-click-sniff` is a lower-level diagnostic that subscribes to every
   notify/indicate characteristic on the device and logs raw bytes verbatim,
   useful if a firmware update ever changes the protocol.
-- If the Click stops responding mid-session, it's almost always the device
-  itself going idle, not the bridge -- leave it untouched for ~20s, press a
-  paddle to wake it, and the bridge's auto-reconnect should pick it back up.
+- If the Click drops mid-session, press a paddle to wake it; the bridge
+  reconnects when it advertises again. With `keep_awake` on, a drop should
+  only come from the radio link (range, interference).
 - The first few paddle presses right after connecting can be silently
   dropped -- the button sensor itself seems to stay in a low-power state
   until a real press wakes it up, separately from the BLE connection being

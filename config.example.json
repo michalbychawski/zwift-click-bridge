@@ -1,11 +1,7 @@
 {
   "controller_side": "right",
-  "reconnect_delay_seconds": 3,
   "idle_disconnect_seconds": 600,
   "post_idle_cooldown_seconds": 90,
-  "standing_reconnect_seconds": 1800,
-  "keepalive_mode": "rideon",
-  "diagnostic_writes": false,
   "keep_awake": true,
   "buttons": {
     "0x1": {"name": "left", "key": null},

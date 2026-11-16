@@ -16,38 +16,24 @@ _DEFAULT_KEYS = {
     0x20: "i",  # "b"
 }
 
-# Lets the Click drop into its own battery-saving sleep when unused, rather
-# than the keepalive holding the connection open indefinitely.
+# Lets the Click sleep when unused instead of the bridge keeping it awake (keep_awake) for good.
+# A press wakes it and the bridge reconnects.
 DEFAULT_IDLE_DISCONNECT_SECONDS = 600
 
-# After we disconnect it intentionally, the Click keeps advertising (and
-# reconnecting) for roughly a minute before it actually sleeps -- observed
-# empirically, not documented anywhere. Retrying sooner than this just
-# catches that lingering advertisement and never lets it fully sleep.
+# After the bridge disconnects it on purpose, the Click keeps advertising for a while before it
+# sleeps. Reconnecting sooner than this would just catch that advertisement.
 DEFAULT_POST_IDLE_COOLDOWN_SECONDS = 90
-
-# After the Click drops (it sleeps about a minute after the last press), a connection
-# attempt stays open this long after that press, so the press that wakes it connects
-# without waiting for the scanner to see it first. 0 = wait for its advertisement.
-DEFAULT_STANDING_RECONNECT_SECONDS = 1800
 
 # Only one Click v2 pod is connected -- see constants.DEVICE_TYPE_BY_SIDE.
 DEFAULT_CONTROLLER_SIDE = "right"
-
-# What the keepalive sends -- see constants.KEEPALIVE_GETS.
-DEFAULT_KEEPALIVE_MODE = "rideon"
 
 # Send the wake sequence that keeps the pod on -- see constants.CHAR_WAKE.
 DEFAULT_KEEP_AWAKE = True
 
 DEFAULT_CONFIG = {
     "controller_side": DEFAULT_CONTROLLER_SIDE,
-    "reconnect_delay_seconds": 3,
     "idle_disconnect_seconds": DEFAULT_IDLE_DISCONNECT_SECONDS,
     "post_idle_cooldown_seconds": DEFAULT_POST_IDLE_COOLDOWN_SECONDS,
-    "standing_reconnect_seconds": DEFAULT_STANDING_RECONNECT_SECONDS,
-    "keepalive_mode": DEFAULT_KEEPALIVE_MODE,
-    "diagnostic_writes": False,
     "keep_awake": DEFAULT_KEEP_AWAKE,
     "buttons": {
         hex(bit): {"name": name, "key": _DEFAULT_KEYS.get(bit)}
@@ -65,12 +51,8 @@ class ButtonMapping:
 @dataclass
 class KeyMap:
     controller_side: str
-    reconnect_delay_seconds: float
     idle_disconnect_seconds: float
     post_idle_cooldown_seconds: float
-    standing_reconnect_seconds: float
-    keepalive_mode: str
-    diagnostic_writes: bool
     keep_awake: bool
     buttons: dict[int, ButtonMapping]
     path: Path = DEFAULT_CONFIG_PATH
@@ -89,15 +71,10 @@ class KeyMap:
             for bit, mapping in raw["buttons"].items()
         }
         side = str(raw.get("controller_side", DEFAULT_CONTROLLER_SIDE)).lower()
-        mode = str(raw.get("keepalive_mode", DEFAULT_KEEPALIVE_MODE)).lower()
         return cls(
             controller_side=side if side in constants.DEVICE_TYPE_BY_SIDE else DEFAULT_CONTROLLER_SIDE,
-            reconnect_delay_seconds=raw["reconnect_delay_seconds"],
             idle_disconnect_seconds=raw.get("idle_disconnect_seconds", DEFAULT_IDLE_DISCONNECT_SECONDS),
             post_idle_cooldown_seconds=raw.get("post_idle_cooldown_seconds", DEFAULT_POST_IDLE_COOLDOWN_SECONDS),
-            standing_reconnect_seconds=raw.get("standing_reconnect_seconds", DEFAULT_STANDING_RECONNECT_SECONDS),
-            keepalive_mode=mode if mode in constants.KEEPALIVE_MODES else DEFAULT_KEEPALIVE_MODE,
-            diagnostic_writes=bool(raw.get("diagnostic_writes", False)),
             keep_awake=bool(raw.get("keep_awake", DEFAULT_KEEP_AWAKE)),
             buttons=buttons,
             path=path,
@@ -106,12 +83,8 @@ class KeyMap:
     def save(self) -> None:
         raw = {
             "controller_side": self.controller_side,
-            "reconnect_delay_seconds": self.reconnect_delay_seconds,
             "idle_disconnect_seconds": self.idle_disconnect_seconds,
             "post_idle_cooldown_seconds": self.post_idle_cooldown_seconds,
-            "standing_reconnect_seconds": self.standing_reconnect_seconds,
-            "keepalive_mode": self.keepalive_mode,
-            "diagnostic_writes": self.diagnostic_writes,
             "keep_awake": self.keep_awake,
             "buttons": {
                 hex(bit): {"name": mapping.name, "key": mapping.key}

@@ -22,32 +22,15 @@ ACTIVATION_WRITES = [
     bytes([0x00, 0x08, 0x10]),
 ]
 
-# Sent every KEEPALIVE_INTERVAL_SECONDS. The Click answers each RideOn (SYNC_TX echo), but a
-# log from 2026-10-28 showed it still stops answering and drops ~60 s after the last button
-# press: RideOn does not reset its own inactivity timer. The "get" requests below (the same
-# ones activation sends: 0x00 = GET, field 1 = what to get; the Click answers 0x3c) are an
-# experiment, `keepalive_mode` in the config, to see whether a request does reset it.
+# Sent every KEEPALIVE_INTERVAL_SECONDS. The Click answers each one, but it doesn't reset the pod's
+# own ~60 s sleep timer: nothing written to SYNC_RX does (RideOn, GET requests, a released
+# controller frame, game state, the pairing page were all tried; see the git history up to 0.2.11).
+# The wake sequence below does.
 KEEPALIVE_WRITE = RIDE_ON
 KEEPALIVE_INTERVAL_SECONDS = 3.0
-KEEPALIVE_GETS = [
-    bytes([0x00, 0x08, 0x00]),  # device info (answer: 3c 08 00 12 ... "Zwift Click2" ...)
-    bytes([0x00, 0x08, 0x10]),  # object 0x10 (answer: 3c 08 10)
-]
-KEEPALIVE_MODES = ("rideon", "rideon+get", "get")
 
-# Both GETs and writing other messages failed to reset the idle timer (2026-11-01). A released
-# CONTROLLER_NOTIFICATION (0x23) and a GAME_STATE_NOTIFICATION (0x43) were each answered with
-# 3e 08 <opcode> 10 05: STATUS_RESPONSE, NOT_SUPPORTED.
-
-# Sent once after activation, only to log what comes back: the pairing page (BikeControl's
-# PAGE_DEVICE_PAIRING) and log level 5 (trace), hoping the Click says why it sleeps.
-DIAGNOSTIC_WRITES = [
-    bytes([0x00, 0x08, 0x82, 0xE0, 0x03]),
-    bytes([0x41, 0x08, 0x05]),
-]
-
-# Keeping the right pod awake. Nothing written to SYNC_RX resets its ~60 s sleep timer (above),
-# but this sequence keeps it on for ~944 s on the same connection. It's what BikeControl sends:
+# Keeping the right pod awake: this sequence keeps it on for ~944 s on the same connection. It's
+# what BikeControl sends:
 # click2whoosh (github.com/NicolaM96/click2whoosh, docs/HOW-IT-WORKS.md) captured it from
 # BikeControl's Bluetooth traffic, firmware 1.1.0. Notifications on both characteristics are
 # re-enabled, then CHAR_WAKE_CONTROL <- 01 (reply 01 f0 00), CHAR_WAKE <- WAKE_MESSAGE (reply 00),
@@ -63,6 +46,7 @@ WAKE_RENEW_SECONDS = 300.0  # click2whoosh's interval, well inside the ~944 s ea
 # (POWER_OFF, 0x0f, is answered NOT_SUPPORTED.)
 OPCODE_RESET = 0x18
 CHAR_FIRMWARE_REVISION = "00002a26-0000-1000-8000-00805f9b34fb"
+CHAR_BATTERY_LEVEL = "00002a19-0000-1000-8000-00805f9b34fb"  # standard; the pod also notifies changes
 
 # A connection attempt that works takes 0.2-6 s. One that hangs does so reading services, and
 # the Click may stop advertising during a long wait, so give up early and catch the next packet.
